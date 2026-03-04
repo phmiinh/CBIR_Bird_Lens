@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--padding-ratio",
         type=float,
-        default=0.10,
+        default=0.20,
         help="Extra padding added around the bounding box before square crop.",
     )
     parser.add_argument(

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import html
 import json
+import math
 import random
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from PIL import Image
 from tqdm import tqdm
@@ -44,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         "--sample-size",
         type=int,
         default=1000,
-        help="Number of random candidates to include in the review set.",
+        help="Number of candidates to include in the review set.",
     )
     parser.add_argument(
         "--seed",
@@ -55,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--padding-ratio",
         type=float,
-        default=0.10,
+        default=0.20,
         help="Extra padding added around the bounding box before square crop preview.",
     )
     parser.add_argument(
@@ -74,6 +76,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Sample from the best N*sample_size candidates when using assignment mode.",
+    )
+    parser.add_argument(
+        "--distribution-mode",
+        choices=("species_balanced", "ranked"),
+        default="species_balanced",
+        help="How to distribute candidates inside the sampled set.",
     )
     return parser.parse_args()
 
@@ -211,6 +219,26 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
+    }
+    .filters {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .filters label {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .species-select {
+      min-width: 320px;
+      max-width: min(42vw, 520px);
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: white;
+      color: var(--ink);
+      padding: 8px 12px;
+      font: inherit;
     }
     .nav-btn,
     .page-btn,
@@ -484,7 +512,7 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
       <div class="hero-top">
         <div class="title-block">
           <h1>Bird Review Board</h1>
-          <p>20 images per page. Use Keep for final candidates, then export a reviewed CSV.</p>
+          <p>One species per page. Use Keep for final candidates, then export a reviewed CSV.</p>
         </div>
         <div class="summary">
           <div class="stat"><strong id="selectedCount">0</strong><span>Selected</span></div>
@@ -500,6 +528,10 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
           <button id="nextBtn" class="nav-btn" type="button">Next</button>
           <button id="lastBtn" class="nav-btn" type="button">Last</button>
           <span id="pageInfo" class="page-info"></span>
+        </div>
+        <div class="filters">
+          <label for="speciesSelect">Jump To Species</label>
+          <select id="speciesSelect" class="species-select"></select>
         </div>
         <div class="actions">
           <button id="downloadBtn" class="action-btn primary" type="button">Download Reviewed CSV</button>
@@ -524,7 +556,6 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
 
   <script>
     const rows = __CARDS_JSON__;
-    const pageSize = 20;
     const storageKey = 'cub-review:' + window.location.pathname + ':' + rows.length;
     const gallery = document.getElementById('gallery');
     const previewModal = document.getElementById('previewModal');
@@ -533,6 +564,7 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     const closeModalBtn = document.getElementById('closeModalBtn');
     const pageList = document.getElementById('pageList');
     const pageInfo = document.getElementById('pageInfo');
+    const speciesSelect = document.getElementById('speciesSelect');
     const selectedCount = document.getElementById('selectedCount');
     const skippedCount = document.getElementById('skippedCount');
     const remainingCount = document.getElementById('remainingCount');
@@ -543,6 +575,29 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     const downloadBtn = document.getElementById('downloadBtn');
     const resetBtn = document.getElementById('resetBtn');
 
+    function buildSpeciesGroups(sourceRows) {
+      const buckets = new Map();
+      sourceRows.forEach((row) => {
+        const speciesId = Number(row.species_id);
+        const key = String(speciesId) + '|' + row.species_name;
+        if (!buckets.has(key)) {
+          buckets.set(key, {
+            species_id: speciesId,
+            species_name: row.species_name,
+            rows: [],
+          });
+        }
+        buckets.get(key).rows.push(row);
+      });
+
+      const groups = Array.from(buckets.values()).sort((left, right) => left.species_id - right.species_id);
+      groups.forEach((group) => {
+        group.rows.sort((left, right) => Number(left.review_index) - Number(right.review_index));
+      });
+      return groups;
+    }
+
+    const speciesGroups = buildSpeciesGroups(rows);
     let currentPage = 1;
 
     function loadReviewState() {
@@ -581,7 +636,27 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     }
 
     function totalPages() {
-      return Math.max(1, Math.ceil(rows.length / pageSize));
+      return Math.max(1, speciesGroups.length);
+    }
+
+    function currentGroup() {
+      return speciesGroups[currentPage - 1] || { species_id: 0, species_name: 'N/A', rows: [] };
+    }
+
+    function populateSpeciesFilter() {
+      if (speciesGroups.length === 0) {
+        speciesSelect.innerHTML = '<option value="1">No species</option>';
+        return;
+      }
+
+      const options = [];
+      speciesGroups.forEach((group, index) => {
+        const safeName = escapeHtml(group.species_name);
+        const pageNo = index + 1;
+        options.push(`<option value="${pageNo}">${String(pageNo).padStart(3, '0')} - ${safeName} (${group.rows.length})</option>`);
+      });
+      speciesSelect.innerHTML = options.join('');
+      speciesSelect.value = String(currentPage);
     }
 
     function pageSequence() {
@@ -621,8 +696,7 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     }
 
     function renderCards() {
-      const start = (currentPage - 1) * pageSize;
-      const pageRows = rows.slice(start, start + pageSize);
+      const pageRows = currentGroup().rows;
       gallery.innerHTML = pageRows.map((row) => {
         const keepActive = row.review_status === 'keep' ? ' active' : '';
         const skipActive = row.review_status === 'skip' ? ' active' : '';
@@ -649,6 +723,7 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     }
 
     function renderPagination() {
+      const group = currentGroup();
       pageList.innerHTML = '';
       let previousPage = 0;
       pageSequence().forEach((page) => {
@@ -669,9 +744,9 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
       });
 
       const total = totalPages();
-      const start = (currentPage - 1) * pageSize + 1;
-      const end = Math.min(currentPage * pageSize, rows.length);
-      pageInfo.textContent = 'Page ' + currentPage + '/' + total + ' | Showing ' + start + '-' + end + ' of ' + rows.length;
+      const speciesLabel = String(group.species_id).padStart(3, '0') + '.' + group.species_name;
+      pageInfo.textContent = 'Species Page ' + currentPage + '/' + total + ' | ' + speciesLabel + ' | ' + group.rows.length + ' images';
+      speciesSelect.value = String(currentPage);
       firstBtn.disabled = currentPage === 1;
       prevBtn.disabled = currentPage === 1;
       nextBtn.disabled = currentPage === total;
@@ -679,6 +754,9 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     }
 
     function render() {
+      if (currentPage > totalPages()) {
+        currentPage = totalPages();
+      }
       summarize();
       renderPagination();
       renderCards();
@@ -784,6 +862,12 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     prevBtn.addEventListener('click', () => goToPage(currentPage - 1, true));
     nextBtn.addEventListener('click', () => goToPage(currentPage + 1, true));
     lastBtn.addEventListener('click', () => goToPage(totalPages(), true));
+    speciesSelect.addEventListener('change', () => {
+      const targetPage = Number(speciesSelect.value);
+      if (Number.isFinite(targetPage)) {
+        goToPage(targetPage, false);
+      }
+    });
     downloadBtn.addEventListener('click', downloadReviewedCsv);
     closeModalBtn.addEventListener('click', closePreview);
     previewModal.addEventListener('click', (event) => {
@@ -808,6 +892,7 @@ def render_gallery(cards: List[dict], output_path: Path) -> None:
     });
 
     initializeRows();
+    populateSpeciesFilter();
     render();
   </script>
 </body>
@@ -886,13 +971,34 @@ def enrich_records(records: List[dict], dataset_root: Path) -> List[dict]:
     return enriched
 
 
-def choose_records(records: List[dict], sample_size: int, seed: int, sampling_strategy: str, candidate_multiplier: int) -> List[dict]:
+def _build_base_pool(
+    records: List[dict],
+    sample_size: int,
+    seed: int,
+    sampling_strategy: str,
+    candidate_multiplier: int,
+    distribution_mode: str,
+) -> List[dict]:
     rng = random.Random(seed)
 
     if sampling_strategy == "random":
-        chosen = rng.sample(records, sample_size)
-        chosen.sort(key=lambda item: item["image_id"])
-        return chosen
+        pool = list(records)
+        rng.shuffle(pool)
+        return pool
+
+    if distribution_mode == "species_balanced":
+        by_species: Dict[int, List[dict]] = {}
+        for record in records:
+            by_species.setdefault(int(record["species_id"]), []).append(record)
+
+        species_count = max(1, len(by_species))
+        per_species_cap = max(1, math.ceil((sample_size * max(1, candidate_multiplier)) / species_count))
+        pool: List[dict] = []
+        for species_id in sorted(by_species):
+            bucket = by_species[species_id]
+            bucket.sort(key=lambda item: (-item["assignment_score"], item["image_id"]))
+            pool.extend(bucket[:per_species_cap])
+        return pool
 
     perching_candidates = [record for record in records if record["perching_like"] == 1]
     if len(perching_candidates) < sample_size:
@@ -903,10 +1009,88 @@ def choose_records(records: List[dict], sample_size: int, seed: int, sampling_st
         key=lambda item: (-item["assignment_score"], item["image_id"]),
     )
     top_pool_size = min(len(ranked_candidates), max(sample_size, sample_size * max(1, candidate_multiplier)))
-    top_pool = ranked_candidates[:top_pool_size]
-    chosen = rng.sample(top_pool, sample_size)
-    chosen.sort(key=lambda item: (-item["assignment_score"], item["image_id"]))
-    return chosen
+    return ranked_candidates[:top_pool_size]
+
+
+def _species_balanced_sample(pool: List[dict], sample_size: int, seed: int) -> List[dict]:
+    rng = random.Random(seed)
+    by_species: Dict[int, List[dict]] = {}
+    for record in pool:
+        by_species.setdefault(int(record["species_id"]), []).append(record)
+
+    for species_id, records in by_species.items():
+        records.sort(key=lambda item: (-item["assignment_score"], item["image_id"]))
+        by_species[species_id] = records
+
+    species_ids = sorted(by_species.keys())
+    if not species_ids:
+        return []
+
+    rng.shuffle(species_ids)
+    base_quota = sample_size // len(species_ids)
+    remainder = sample_size % len(species_ids)
+
+    selected: List[dict] = []
+    indices: Dict[int, int] = {}
+    for species_index, species_id in enumerate(species_ids):
+        bucket = by_species[species_id]
+        quota = base_quota + (1 if species_index < remainder else 0)
+        take_count = min(quota, len(bucket))
+        selected.extend(bucket[:take_count])
+        indices[species_id] = take_count
+
+    missing = sample_size - len(selected)
+    active_species = [species_id for species_id in species_ids if indices[species_id] < len(by_species[species_id])]
+
+    while missing > 0 and active_species:
+        rng.shuffle(active_species)
+        next_active: List[int] = []
+        for species_id in active_species:
+            if missing <= 0:
+                break
+            next_index = indices[species_id]
+            bucket = by_species[species_id]
+            if next_index < len(bucket):
+                selected.append(bucket[next_index])
+                indices[species_id] = next_index + 1
+                missing -= 1
+            if indices[species_id] < len(bucket):
+                next_active.append(species_id)
+        active_species = next_active
+
+    selected.sort(key=lambda item: (item["species_id"], -item["assignment_score"], item["image_id"]))
+    return selected[:sample_size]
+
+
+def choose_records(
+    records: List[dict],
+    sample_size: int,
+    seed: int,
+    sampling_strategy: str,
+    candidate_multiplier: int,
+    distribution_mode: str,
+) -> List[dict]:
+    base_pool = _build_base_pool(
+        records,
+        sample_size=sample_size,
+        seed=seed,
+        sampling_strategy=sampling_strategy,
+        candidate_multiplier=candidate_multiplier,
+        distribution_mode=distribution_mode,
+    )
+
+    if sample_size > len(base_pool):
+        raise ValueError(
+            f"Sample size {sample_size} cannot be satisfied from candidate pool size {len(base_pool)}."
+        )
+
+    rng = random.Random(seed)
+    if distribution_mode == "ranked":
+        chosen = rng.sample(base_pool, sample_size)
+        chosen.sort(key=lambda item: (-item["assignment_score"], item["image_id"]))
+        return chosen
+
+    return _species_balanced_sample(base_pool, sample_size=sample_size, seed=seed)
 
 
 def main() -> int:
@@ -929,6 +1113,15 @@ def main() -> int:
         seed=args.seed,
         sampling_strategy=args.sampling_strategy,
         candidate_multiplier=args.candidate_multiplier,
+        distribution_mode=args.distribution_mode,
+    )
+
+    species_counter = collections.Counter(record["species_id"] for record in sampled_records)
+    min_per_species = min(species_counter.values()) if species_counter else 0
+    max_per_species = max(species_counter.values()) if species_counter else 0
+    print(
+        f"Species coverage: {len(species_counter)} species | "
+        f"min per species: {min_per_species} | max per species: {max_per_species}"
     )
 
     csv_rows = []
