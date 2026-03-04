@@ -1,0 +1,32 @@
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+
+# Local credentials/secrets
+kaggle.json
+.kaggle/
+
+# Generated artifacts for this project
+data/raw/
+data/processed/
+outputs/
+
+# Optional: keep docs folder if you add reports manually
+# docs/
