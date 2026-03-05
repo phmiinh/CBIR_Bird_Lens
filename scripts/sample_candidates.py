@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import collections
 import html
 import json
@@ -64,6 +65,16 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         default="outputs/review",
         help="Directory that will receive the CSV manifest and HTML gallery.",
+    )
+    parser.add_argument(
+        "--reuse-selection-csv",
+        default="",
+        help="Reuse image list/order from an existing candidates or reviewed CSV instead of re-sampling.",
+    )
+    parser.add_argument(
+        "--prefill-keep-csv",
+        default="",
+        help="Prefill keep/notes from a reviewed CSV (useful when regenerating previews with a new padding ratio).",
     )
     parser.add_argument(
         "--sampling-strategy",
@@ -1093,6 +1104,81 @@ def choose_records(
     return _species_balanced_sample(base_pool, sample_size=sample_size, seed=seed)
 
 
+def _read_csv_rows(file_path: Path) -> List[dict]:
+    with file_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _parse_image_id(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
+
+
+def _normalize_keep_value(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    keep_values = {"1", "true", "yes", "y", "keep", "x", "selected", "ok"}
+    skip_values = {"0", "false", "no", "n", "skip", "reject", "rejected"}
+    if text in keep_values:
+        return "1"
+    if text in skip_values:
+        return "0"
+    return ""
+
+
+def load_prefill_state(file_path: Path) -> Dict[int, Dict[str, str]]:
+    rows = _read_csv_rows(file_path)
+    state: Dict[int, Dict[str, str]] = {}
+    for row in rows:
+        image_id = _parse_image_id(row.get("image_id", ""))
+        if image_id is None:
+            continue
+        state[image_id] = {
+            "keep": _normalize_keep_value(row.get("keep", "")),
+            "notes": str(row.get("notes", "") or "").strip(),
+        }
+    return state
+
+
+def reuse_sampled_records(selection_csv: Path, enriched_records: List[dict]) -> List[dict]:
+    rows = _read_csv_rows(selection_csv)
+    enriched_by_id = {int(record["image_id"]): record for record in enriched_records}
+
+    ordered_items = []
+    for fallback_index, row in enumerate(rows, start=1):
+        image_id = _parse_image_id(row.get("image_id", ""))
+        if image_id is None:
+            continue
+        review_index = _parse_image_id(row.get("review_index", "")) or fallback_index
+        ordered_items.append((review_index, fallback_index, image_id))
+
+    ordered_items.sort(key=lambda item: (item[0], item[1]))
+    sampled_records: List[dict] = []
+    seen_ids = set()
+    missing_ids = []
+    for _, _, image_id in ordered_items:
+        if image_id in seen_ids:
+            continue
+        seen_ids.add(image_id)
+        record = enriched_by_id.get(image_id)
+        if record is None:
+            missing_ids.append(image_id)
+            continue
+        sampled_records.append(record)
+
+    if not sampled_records:
+        raise ValueError(f"No reusable image rows were found in {selection_csv}.")
+    if missing_ids:
+        print(f"Warning: {len(missing_ids)} image_id entries from {selection_csv} were not found in dataset metadata.")
+    return sampled_records
+
+
 def main() -> int:
     args = parse_args()
 
@@ -1107,14 +1193,25 @@ def main() -> int:
         raise ValueError(f"Sample size {args.sample_size} is larger than dataset size {len(records)}.")
 
     enriched_records = enrich_records(records, dataset_root)
-    sampled_records = choose_records(
-        enriched_records,
-        sample_size=args.sample_size,
-        seed=args.seed,
-        sampling_strategy=args.sampling_strategy,
-        candidate_multiplier=args.candidate_multiplier,
-        distribution_mode=args.distribution_mode,
-    )
+    reuse_selection_csv = Path(args.reuse_selection_csv).resolve() if args.reuse_selection_csv else None
+    prefill_keep_csv = Path(args.prefill_keep_csv).resolve() if args.prefill_keep_csv else None
+
+    if reuse_selection_csv:
+        if not reuse_selection_csv.exists():
+            raise FileNotFoundError(f"Could not find reuse-selection CSV: {reuse_selection_csv}")
+        sampled_records = reuse_sampled_records(reuse_selection_csv, enriched_records)
+        print(f"Reused candidate list from: {reuse_selection_csv} ({len(sampled_records)} images)")
+        if prefill_keep_csv is None:
+            prefill_keep_csv = reuse_selection_csv
+    else:
+        sampled_records = choose_records(
+            enriched_records,
+            sample_size=args.sample_size,
+            seed=args.seed,
+            sampling_strategy=args.sampling_strategy,
+            candidate_multiplier=args.candidate_multiplier,
+            distribution_mode=args.distribution_mode,
+        )
 
     species_counter = collections.Counter(record["species_id"] for record in sampled_records)
     min_per_species = min(species_counter.values()) if species_counter else 0
@@ -1123,6 +1220,12 @@ def main() -> int:
         f"Species coverage: {len(species_counter)} species | "
         f"min per species: {min_per_species} | max per species: {max_per_species}"
     )
+    prefill_state: Dict[int, Dict[str, str]] = {}
+    if prefill_keep_csv:
+        if not prefill_keep_csv.exists():
+            raise FileNotFoundError(f"Could not find prefill-keep CSV: {prefill_keep_csv}")
+        prefill_state = load_prefill_state(prefill_keep_csv)
+        print(f"Prefilled keep/notes from: {prefill_keep_csv} ({len(prefill_state)} rows)")
 
     csv_rows = []
     gallery_cards = []
@@ -1143,6 +1246,7 @@ def main() -> int:
 
         preview_name = f'{record["image_id"]:05d}.jpg'
         build_preview(annotated, normalized, preview_dir / preview_name)
+        prefill = prefill_state.get(int(record["image_id"]), {})
 
         csv_row = {
             "image_id": record["image_id"],
@@ -1168,8 +1272,8 @@ def main() -> int:
             "legs_visible": record["legs_visible"],
             "bbox_horizontal": record["bbox_horizontal"],
             "assignment_score": record["assignment_score"],
-            "keep": "",
-            "notes": "",
+            "keep": prefill.get("keep", ""),
+            "notes": prefill.get("notes", ""),
         }
         csv_rows.append(csv_row)
         gallery_cards.append(csv_row)

@@ -9,7 +9,7 @@ from typing import List
 from PIL import Image
 from tqdm import tqdm
 
-from cub_utils import draw_bbox, normalize_image, write_csv
+from cub_utils import draw_bbox, locate_cub_root, normalize_image, write_csv
 
 
 def parse_args() -> argparse.Namespace:
@@ -112,7 +112,7 @@ def main() -> int:
     args = parse_args()
 
     selection_csv = Path(args.selection_csv).resolve()
-    dataset_root = Path(args.dataset_root).resolve()
+    dataset_root = locate_cub_root(Path(args.dataset_root).resolve())
     output_dir = Path(args.output_dir).resolve()
     images_output_dir = output_dir / "images"
     metadata_output_dir = output_dir / "metadata"
