@@ -1,0 +1,15 @@
+{
+  "created_at_utc": "2026-03-12T04:12:53.709853+00:00",
+  "metadata_csv": "D:\\PTIT\\Multimedia Database\\data\\processed\\metadata\\images.csv",
+  "processed_root": "D:\\PTIT\\Multimedia Database\\data\\processed",
+  "cnn_backbone": "resnet18",
+  "hsv_bins": [
+    8,
+    8,
+    8
+  ],
+  "cnn_dim": 512,
+  "hsv_dim": 512,
+  "num_images": 500,
+  "device_used": "cpu"
+}

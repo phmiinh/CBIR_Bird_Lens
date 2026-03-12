@@ -1,50 +1,51 @@
 # CBIR Bird Lens
 
-CBIR Bird Lens is a course project for **Bird Image Storage and Retrieval** using the CUB-200-2011 dataset.
-This repository is organized as an implementation-first workflow, where each project phase is documented and reproducible.
+CBIR Bird Lens is a course project for **Bird Image Storage and Retrieval** on CUB-200-2011.
 
-## Project Objective
+## Project Goal
 
-Build a complete image retrieval pipeline for bird images, with a focus on:
+Build a complete retrieval pipeline for bird images with:
 
-- Collecting and preparing at least 500 normalized bird images.
-- Enforcing visual constraints (perching birds, roughly horizontal/side view).
-- Cropping bird ROI from bounding boxes and resizing to a unified format (224x224).
-- Storing metadata and preprocessing parameters for each image.
-- Preparing data for downstream feature extraction and top-k retrieval experiments.
+- dataset collection and normalization,
+- metadata and feature extraction,
+- top-k similarity retrieval,
+- Precision@5 evaluation.
 
-## Assignment Requirements (Condensed)
+## Assignment Scope (Condensed)
 
-The full assignment flow includes:
+1. Collect and normalize at least 500 images.
+2. Keep metadata and preprocessing parameters.
+3. Extract similarity and difference features.
+4. Store images/features in a multimedia-ready schema.
+5. Retrieve top-5 similar images.
+6. Report intermediate results and evaluation.
 
-1. Dataset collection and normalization.
-2. Metadata generation.
-3. Feature extraction (similarity + difference features).
-4. Multimedia storage design.
-5. k-NN retrieval (top-5).
-6. Intermediate results for report/demo.
-7. Evaluation (e.g., Precision@5) and failure-case analysis.
+## Documentation
 
-This repository currently implements and documents the **data collection + normalization stage** in production-ready scripts.
+- [setup.md](setup.md): environment setup and dataset download.
+- [pipeline.md](pipeline.md): full runbook across Phase 1, Phase 2, and Phase 3.
 
-## Documentation Map
+## Scripts Layout
 
-- [setup.md](setup.md): environment setup, virtual environment, Kaggle API token setup, and dataset download/extraction.
-- [pipeline.md](pipeline.md): step-by-step execution pipeline for the normalization stage (sampling, HTML review, keep/skip export, final normalization).
+- `scripts/phase1_setup`
+- `scripts/phase2_normalize`
+- `scripts/phase3_retrieval`
 
-## Repository Structure
+### Phase 1
 
-- `scripts/download_cub.py`: downloads or extracts CUB-200-2011.
-- `scripts/sample_candidates.py`: builds a review batch and interactive HTML board.
-- `scripts/normalize_selected.py`: generates the final normalized dataset from reviewed selections.
-- `outputs/`: review artifacts and intermediate report examples.
-- `data/`: raw and processed datasets.
+- `scripts/phase1_setup/download_cub.py`
 
-## Documentation Update Policy
+### Phase 2
 
-When a new project phase is implemented, update `pipeline.md` with:
+- `scripts/phase2_normalize/cub_utils.py`
+- `scripts/phase2_normalize/sample_candidates.py`
+- `scripts/phase2_normalize/normalize_selected.py`
 
-1. Goal of the phase.
-2. Commands to run.
-3. Expected outputs.
-4. Verification checklist.
+### Phase 3
+
+- `scripts/phase3_retrieval/feature_utils.py`
+- `scripts/phase3_retrieval/extract_features.py`
+- `scripts/phase3_retrieval/demo_ui.py`
+- `scripts/phase3_retrieval/retrieve_topk.py`
+- `scripts/phase3_retrieval/evaluate_precision_at_k.py`
+- `scripts/phase3_retrieval/build_feature_db.py`
