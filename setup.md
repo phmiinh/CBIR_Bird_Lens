@@ -1,66 +1,84 @@
-# Setup Environment + Kaggle Access
+# Environment Setup
 
-This document covers only environment setup and dataset access.
+This file covers only:
+- Python environment setup
+- dependency installation
+- Kaggle API access
+- CUB-200-2011 download
 
-## 1. Create virtual environment
+For the working execution flow, continue with [pipeline.md](/d:/PTIT/Multimedia%20Database/pipeline.md).
 
-Run at repository root:
+## 1. Create and Activate the Virtual Environment
+
+From the repository root:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
+
+Upgrade `pip` and install project dependencies:
+
+```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Quick check:
+The environment includes:
+- normalization dependencies
+- `torch` / `torchvision` for the secondary CNN descriptor
+- `scikit-image` for LBP and HOG
+- `gradio` for the optional demo UI
 
-```powershell
-python --version
-pip --version
+## 2. Configure Kaggle Access
+
+Generate `kaggle.json` from your Kaggle account settings, then move it to:
+
+```text
+C:\Users\<YOUR_USERNAME>\.kaggle\kaggle.json
 ```
 
-## 2. Configure Kaggle API token
-
-1. Sign in to Kaggle.
-2. Go to `Settings` -> `API Tokens`.
-3. Click `Create Legacy API Key` to download `kaggle.json`.
-4. Create token folder if needed:
+If you already downloaded `kaggle.json` into `Downloads`, copy it with:
 
 ```powershell
-mkdir $env:USERPROFILE\.kaggle -Force
+New-Item -ItemType Directory -Force -Path "$HOME\.kaggle"
+Copy-Item "D:\Downloads\kaggle.json" "$HOME\.kaggle\kaggle.json" -Force
 ```
 
-5. Copy token file:
+Optional verification:
 
 ```powershell
-copy "D:\Downloads\kaggle.json" "$env:USERPROFILE\.kaggle\kaggle.json" -Force
+python -c "import kaggle; print('Kaggle API ready')"
 ```
 
-## 3. Download CUB-200-2011 dataset
+## 3. Download the CUB Dataset
 
-Option A - Kaggle API:
+Run:
 
 ```powershell
-python scripts/phase1_setup/download_cub.py --force
+python scripts/phase1_setup/download_cub.py
 ```
 
-Option B - local zip file:
-
-```powershell
-python scripts/phase1_setup/download_cub.py --zip "D:\path\to\cub2002011.zip" --force
-```
-
-## 4. Expected output
-
-Dataset root after extraction:
+Expected output root:
 
 ```text
 data/raw/cub2002011
 ```
 
-Check:
+The script supports the Kaggle-hosted CUB package used in this repository and resolves the extracted dataset root automatically.
 
-```powershell
-Get-ChildItem data/raw/cub2002011
+## 4. Confirm the Raw Dataset Layout
+
+You should have a structure similar to:
+
+```text
+data/raw/cub2002011/
+  CUB_200_2011/
+    images.txt
+    image_class_labels.txt
+    train_test_split.txt
+    bounding_boxes.txt
+    images/
 ```
+
+Once this is ready, move to [pipeline.md](/d:/PTIT/Multimedia%20Database/pipeline.md).

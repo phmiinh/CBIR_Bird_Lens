@@ -11,6 +11,8 @@ from tqdm import tqdm
 
 from cub_utils import draw_bbox, locate_cub_root, normalize_image, write_csv
 
+TRUTHY_VALUES = {"1", "true", "yes", "y", "keep", "x", "selected", "ok"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -46,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-images",
         type=int,
-        default=500,
+        default=1000,
         help="Maximum number of kept images allowed in the final export.",
     )
     parser.add_argument(
@@ -64,8 +66,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def truthy(value: str) -> bool:
+    return str(value or "").strip().lower() in TRUTHY_VALUES
+
+
 def is_keep_flag(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "y", "keep", "x", "selected", "ok"}
+    return truthy(value)
+
+
+def parse_int_flag(value: str | int | float | None) -> int:
+    if value is None:
+        return 0
+    raw = str(value).strip()
+    if not raw:
+        return 0
+    if truthy(raw):
+        return 1
+    try:
+        return int(float(raw))
+    except ValueError:
+        return 0
+
+
+def derive_side_view(row: dict) -> int:
+    one_eye_visible = parse_int_flag(row.get("one_eye_visible"))
+    one_wing_visible = parse_int_flag(row.get("one_wing_visible"))
+    bbox_horizontal = parse_int_flag(row.get("bbox_horizontal"))
+    return int(one_eye_visible == 1 or one_wing_visible == 1 or bbox_horizontal == 1)
 
 
 def resolve_source_path(dataset_root: Path, relative_image_path: str) -> Path:
@@ -81,10 +108,9 @@ def resolve_source_path(dataset_root: Path, relative_image_path: str) -> Path:
 
 
 def load_selected_rows(selection_csv: Path) -> List[dict]:
-    with selection_csv.open("r", encoding="utf-8", newline="") as handle:
+    with selection_csv.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        selected = [row for row in reader if is_keep_flag(row.get("keep", ""))]
-    return selected
+        return [row for row in reader if is_keep_flag(row.get("keep", ""))]
 
 
 def save_example_triplet(
@@ -179,6 +205,8 @@ def main() -> int:
                     "split": row["split"],
                     "source_relative_path": row["relative_image_path"],
                     "processed_relative_path": str(output_path.relative_to(output_dir)),
+                    "width": rgb_image.width,
+                    "height": rgb_image.height,
                     "original_width": rgb_image.width,
                     "original_height": rgb_image.height,
                     "bbox_x": bbox[0],
@@ -191,7 +219,13 @@ def main() -> int:
                     "crop_bottom": crop_box[3],
                     "target_width": args.target_size,
                     "target_height": args.target_size,
-                    "keep": row.get("keep", ""),
+                    "is_perching": parse_int_flag(row.get("perching_like")),
+                    "is_side_view": derive_side_view(row),
+                    "one_eye_visible": parse_int_flag(row.get("one_eye_visible")),
+                    "one_wing_visible": parse_int_flag(row.get("one_wing_visible")),
+                    "legs_visible": parse_int_flag(row.get("legs_visible")),
+                    "bbox_horizontal": parse_int_flag(row.get("bbox_horizontal")),
+                    "keep": "1",
                     "notes": row.get("notes", ""),
                     "preprocess_params": json.dumps(preprocess_params, ensure_ascii=True),
                 }
@@ -204,6 +238,8 @@ def main() -> int:
         "split",
         "source_relative_path",
         "processed_relative_path",
+        "width",
+        "height",
         "original_width",
         "original_height",
         "bbox_x",
@@ -216,6 +252,12 @@ def main() -> int:
         "crop_bottom",
         "target_width",
         "target_height",
+        "is_perching",
+        "is_side_view",
+        "one_eye_visible",
+        "one_wing_visible",
+        "legs_visible",
+        "bbox_horizontal",
         "keep",
         "notes",
         "preprocess_params",

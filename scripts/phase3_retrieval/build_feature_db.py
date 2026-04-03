@@ -2,17 +2,24 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 from pathlib import Path
 
-import numpy as np
-
-from feature_utils import load_csv_rows
+from db_utils import (
+    connect_db,
+    create_schema,
+    ensure_default_experiments,
+    fetch_feature_type_map,
+    insert_feature_types,
+    insert_image_features,
+    insert_images,
+    insert_preprocessing_metadata,
+)
+from feature_utils import build_feature_type_rows, load_csv_rows, load_feature_arrays, load_json
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build SQLite database from extracted image features."
+        description="Build the SQLite feature database for DB-first CBIR retrieval."
     )
     parser.add_argument(
         "--features-dir",
@@ -27,41 +34,61 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Delete existing database file before creating a new one.",
+        help="Delete the existing database before rebuilding it.",
     )
     return parser.parse_args()
 
 
-def create_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS images (
-            image_id INTEGER PRIMARY KEY,
-            species_id INTEGER NOT NULL,
-            species_name TEXT NOT NULL,
-            split TEXT,
-            processed_relative_path TEXT NOT NULL
-        );
+def _build_image_rows(manifest_rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "image_id": int(row["image_id"]),
+            "source_relative_path": row.get("source_relative_path", ""),
+            "processed_relative_path": row.get("processed_relative_path", ""),
+            "species_id": row.get("species_id", ""),
+            "species_name": row.get("species_name", ""),
+            "split": row.get("split", ""),
+            "width": row.get("width", ""),
+            "height": row.get("height", ""),
+            "is_perching": row.get("is_perching", ""),
+            "is_side_view": row.get("is_side_view", ""),
+            "keep": row.get("keep", ""),
+        }
+        for row in manifest_rows
+    ]
 
-        CREATE TABLE IF NOT EXISTS features (
-            image_id INTEGER NOT NULL,
-            feature_type TEXT NOT NULL,
-            dim INTEGER NOT NULL,
-            vector_json TEXT NOT NULL,
-            PRIMARY KEY (image_id, feature_type),
-            FOREIGN KEY (image_id) REFERENCES images(image_id)
-        );
 
-        CREATE TABLE IF NOT EXISTS retrieval_logs (
-            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at_utc TEXT NOT NULL,
-            query_image_id INTEGER,
-            mode TEXT NOT NULL,
-            top_k INTEGER NOT NULL,
-            scores_json TEXT NOT NULL
-        );
-        """
-    )
+def _build_preprocessing_rows(manifest_rows: list[dict]) -> list[dict]:
+    rows = []
+    for row in manifest_rows:
+        preprocess_json = row.get("preprocess_params_json", "{}")
+        padding_ratio = row.get("padding_ratio", "")
+        if padding_ratio == "":
+            try:
+                padding_ratio = json.loads(preprocess_json).get("padding_ratio", "")
+            except json.JSONDecodeError:
+                padding_ratio = ""
+
+        rows.append(
+            {
+                "image_id": int(row["image_id"]),
+                "bbox_x": row.get("bbox_x", ""),
+                "bbox_y": row.get("bbox_y", ""),
+                "bbox_w": row.get("bbox_w", ""),
+                "bbox_h": row.get("bbox_h", ""),
+                "crop_left": row.get("crop_left", ""),
+                "crop_top": row.get("crop_top", ""),
+                "crop_right": row.get("crop_right", ""),
+                "crop_bottom": row.get("crop_bottom", ""),
+                "target_width": row.get("target_width", ""),
+                "target_height": row.get("target_height", ""),
+                "padding_ratio": padding_ratio,
+                "keep": row.get("keep", ""),
+                "notes": row.get("notes", ""),
+                "preprocess_params_json": preprocess_json,
+            }
+        )
+    return rows
 
 
 def main() -> int:
@@ -69,68 +96,37 @@ def main() -> int:
 
     features_dir = Path(args.features_dir).resolve()
     db_path = Path(args.db_path).resolve()
-
     if args.overwrite and db_path.exists():
         db_path.unlink()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
 
     manifest_rows = load_csv_rows(features_dir / "images_manifest.csv")
-    cnn_matrix = np.load(features_dir / "cnn_embeddings.npy")
-    hsv_matrix = np.load(features_dir / "hsv_histograms.npy")
+    if not manifest_rows:
+        raise ValueError("images_manifest.csv is empty.")
 
-    if len(manifest_rows) != cnn_matrix.shape[0] or len(manifest_rows) != hsv_matrix.shape[0]:
-        raise ValueError("Manifest row count does not match feature matrix shape.")
+    config = load_json(features_dir / "config.json")
+    feature_dims = {str(name): int(dim) for name, dim in config["feature_dims"].items()}
+    feature_arrays = load_feature_arrays(features_dir, feature_dims.keys())
 
-    connection = sqlite3.connect(str(db_path))
+    image_ids = [int(row["image_id"]) for row in manifest_rows]
+    for feature_name, matrix in feature_arrays.items():
+        if matrix.shape[0] != len(image_ids):
+            raise ValueError(f"Feature row count mismatch for {feature_name}.")
+
+    connection = connect_db(db_path)
     try:
         create_schema(connection)
-
-        image_values = [
-            (
-                int(row["image_id"]),
-                int(row["species_id"]),
-                row["species_name"],
-                row.get("split", ""),
-                row["processed_relative_path"],
-            )
-            for row in manifest_rows
-        ]
-        connection.executemany(
-            """
-            INSERT OR REPLACE INTO images (
-                image_id, species_id, species_name, split, processed_relative_path
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            image_values,
-        )
-
-        feature_values = []
-        for index, row in enumerate(manifest_rows):
-            image_id = int(row["image_id"])
-            cnn_vector = cnn_matrix[index].astype(float).tolist()
-            hsv_vector = hsv_matrix[index].astype(float).tolist()
-            feature_values.append(
-                (image_id, "cnn_embedding", int(len(cnn_vector)), json.dumps(cnn_vector, ensure_ascii=True))
-            )
-            feature_values.append(
-                (image_id, "hsv_histogram", int(len(hsv_vector)), json.dumps(hsv_vector, ensure_ascii=True))
-            )
-
-        connection.executemany(
-            """
-            INSERT OR REPLACE INTO features (
-                image_id, feature_type, dim, vector_json
-            ) VALUES (?, ?, ?, ?)
-            """,
-            feature_values,
-        )
-        connection.commit()
+        insert_images(connection, _build_image_rows(manifest_rows))
+        insert_preprocessing_metadata(connection, _build_preprocessing_rows(manifest_rows))
+        insert_feature_types(connection, build_feature_type_rows(feature_dims))
+        insert_image_features(connection, image_ids, fetch_feature_type_map(connection), feature_arrays)
+        ensure_default_experiments(connection, dataset_version=str(config["dataset_version"]))
     finally:
         connection.close()
 
-    print(f"Built SQLite DB: {db_path}")
-    print(f"Inserted images: {len(manifest_rows)}")
-    print(f"Inserted features: {len(manifest_rows) * 2}")
+    print(f"Built SQLite DB:      {db_path}")
+    print(f"Inserted images:      {len(manifest_rows)}")
+    print(f"Inserted feature set: {', '.join(feature_dims.keys())}")
+    print(f"Registered experiments: handcrafted_only, cnn_only, fusion, ablation_no_regional_color, ablation_no_shape")
     return 0
 
 

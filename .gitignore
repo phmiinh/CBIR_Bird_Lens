@@ -22,11 +22,20 @@ Thumbs.db
 # Local credentials/secrets
 kaggle.json
 .kaggle/
+.codex/
 
-# Generated artifacts for this project
+# Project data: keep lightweight metadata, ignore heavy/generated assets
 data/raw/
-data/processed/
+data/processed/images/
+data/features/*
+!data/features/config.json
+!data/features/descriptor_table.csv
+!data/features/images_manifest.csv
+
+# Generated outputs
 outputs/
 
 # Optional: keep docs folder if you add reports manually
 # docs/
+
+documents/

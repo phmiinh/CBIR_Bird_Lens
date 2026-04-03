@@ -1,149 +1,430 @@
-# Project Pipeline
+# Execution Pipeline
 
-This file describes the execution flow by phase.
+This document describes the **working command flow** for the DB-first CBIR project.
 
-## Phase 1 - Prerequisites
+Prerequisite:
+- complete [setup.md](/d:/PTIT/Multimedia%20Database/setup.md)
+- activate the project virtual environment before running any command
 
-Complete [setup.md](setup.md):
+Architecture baseline used throughout the pipeline:
+- **loose coupling**: image files on filesystem, metadata + descriptors + logs in SQLite
+- **approximate similarity retrieval**: ranked content matching, not exact DBMS filtering
+- **exhaustive linear scan**: accepted baseline retrieval strategy for the `1000`-image course-project scale
 
-- Virtual environment is created and dependencies are installed.
-- Dataset is available at `data/raw/cub2002011`.
+## Phase 1 - Dataset Setup
 
-Start each session with:
+Download and extract the CUB-200-2011 dataset:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+python scripts/phase1_setup/download_cub.py
 ```
+
+Expected output:
+- `data/raw/cub2002011/...`
 
 ## Phase 2 - Normalization Workflow
 
-### Step 2.1 - Generate review candidates (1000 images)
+Goal:
+- review candidate images
+- keep only valid perching / side-view samples
+- normalize the curated gallery with ROI crop + resize
+- export metadata for downstream database ingestion
+
+### Step 2.1 - Generate Review Board Candidates
+
+Create a species-balanced candidate set for manual review:
 
 ```powershell
-python scripts/phase2_normalize/sample_candidates.py --dataset-root data/raw/cub2002011 --sample-size 1000 --seed 42 --padding-ratio 0.35 --distribution-mode species_balanced
+python scripts/phase2_normalize/sample_candidates.py `
+  --dataset-root data/raw/cub2002011 `
+  --sample-size 1000 `
+  --seed 42 `
+  --distribution-mode species_balanced `
+  --padding-ratio 0.35 `
+  --output-dir outputs/review
 ```
 
-Notes:
-
-- `species_balanced` gives a balanced start across species.
-- With CUB-200 and `sample-size=1000`, this is typically `5 images/species`.
-- Preview images include original with red bbox and normalized crop.
-
-To change padding while preserving reviewed keep/skip states:
-
-```powershell
-python scripts/phase2_normalize/sample_candidates.py --dataset-root data/raw/cub2002011 --output-dir outputs/review --padding-ratio 0.35 --reuse-selection-csv outputs/review/candidates.csv --prefill-keep-csv outputs/review/reviewed_candidates.csv
-```
-
-Output:
-
+Expected outputs:
 - `outputs/review/candidates.csv`
 - `outputs/review/gallery.html`
-- `outputs/review/previews/*.jpg`
+- `outputs/review/previews/...`
 
-### Step 2.2 - Manual review in HTML
+### Step 2.2 - Review and Export Decisions
 
-1. Open `outputs/review/gallery.html`.
-2. Use `Species` dropdown to review by class.
-3. Each page shows one species.
-4. Mark:
-- `Keep`: valid image (perching, side view, usable crop).
-- `Skip`: invalid image.
-- `Reset`: clear status for one image.
-5. Click `Download Reviewed CSV`.
+Open:
 
-### Step 2.3 - Normalize final 500 images
-
-```powershell
-python scripts/phase2_normalize/normalize_selected.py --selection-csv outputs/review/reviewed_candidates.csv --dataset-root data/raw/cub2002011 --padding-ratio 0.35 --require-count 500 --max-images 500
+```text
+outputs/review/gallery.html
 ```
 
-Output:
+Review rule:
+- keep images where the bird is perching, reasonably side-view, visually clear, and not badly occluded
 
+After finishing review:
+- click `Download Reviewed CSV`
+- place the file in:
+
+```text
+outputs/review/reviewed_candidates.csv
+```
+
+### Step 2.3 - Normalize the Final Gallery
+
+Normalize the reviewed selection into the processed gallery:
+
+```powershell
+python scripts/phase2_normalize/normalize_selected.py `
+  --selection-csv outputs/review/reviewed_candidates.csv `
+  --dataset-root data/raw/cub2002011 `
+  --padding-ratio 0.35 `
+  --require-count 1000 `
+  --max-images 1000
+```
+
+Expected outputs:
+- `data/processed/images/...`
+- `data/processed/metadata/images.csv`
+- `data/processed/metadata/images.jsonl`
+- `outputs/intermediate_examples/...`
+
+Notes:
+- if your current local gallery still has only `500` images, repeat the review and normalization flow until `1000` curated images are produced
+
+### Step 2.4 - Incremental Expansion from 500 to 1000
+
+If you already have a first reviewed batch with `500` final keeps, do **not** restart from zero. Create a second review batch that excludes every image already reviewed in batch 1.
+
+Assumed existing file:
+
+```text
+outputs/review/reviewed_candidates.csv
+```
+
+Generate batch 2 without duplicates from batch 1:
+
+```powershell
+python scripts/phase2_normalize/sample_candidates.py `
+  --dataset-root data/raw/cub2002011 `
+  --sample-size 1500 `
+  --seed 43 `
+  --distribution-mode species_balanced `
+  --padding-ratio 0.35 `
+  --exclude-reviewed-csv outputs/review/reviewed_candidates.csv `
+  --output-dir outputs/review_batch_2
+```
+
+Then:
+- open `outputs/review_batch_2/gallery.html`
+- review the new candidates
+- download the CSV
+- move it to:
+
+```text
+outputs/review_batch_2/reviewed_candidates.csv
+```
+
+Important notes:
+- batch 2 review only saves your selection decisions as CSV; it does not create final normalized images yet
+- this command samples from the **raw CUB dataset** in `data/raw/cub2002011`, not from `data/processed`
+- `--exclude-reviewed-csv` removes every `image_id` that already appeared in batch 1, so batch 2 is drawn from the remaining raw dataset
+- use a **different output folder** such as `outputs/review_batch_2`; otherwise your browser may show old review state from `outputs/review/gallery.html`
+- `1500` is only a recommended candidate pool for batch 2; if you want an even stronger final dataset, increase it to `2000`
+
+Merge batch 1 and batch 2 into one final selection CSV:
+
+```powershell
+python scripts/phase2_normalize/merge_review_csvs.py `
+  --input-csv outputs/review/reviewed_candidates.csv `
+  --input-csv outputs/review_batch_2/reviewed_candidates.csv `
+  --output-csv outputs/review/final_reviewed_candidates_1000.csv
+```
+
+Normalize the merged final selection:
+
+```powershell
+python scripts/phase2_normalize/normalize_selected.py `
+  --selection-csv outputs/review/final_reviewed_candidates_1000.csv `
+  --dataset-root data/raw/cub2002011 `
+  --padding-ratio 0.35 `
+  --require-count 1000 `
+  --max-images 1000
+```
+
+The final normalized gallery is written to:
 - `data/processed/images`
 - `data/processed/metadata/images.csv`
 - `data/processed/metadata/images.jsonl`
-- `outputs/intermediate_examples`
 
-### Step 2.4 - Validation checklist
+## Phase 3 - Descriptor Extraction
 
-- Exactly `500` kept images.
-- All outputs are `224x224`.
-- Metadata includes crop and resize parameters.
-- Intermediate examples are available for report.
+Goal:
+- extract the full feature inventory required by the DB-first retrieval system
 
-## Phase 3 - Feature Extraction and Retrieval
+Descriptor set:
+- global HSV histogram
+- regional HSV histogram (`2x2`)
+- color moments
+- LBP histogram
+- HOG descriptor
+- CNN embedding (`ResNet18`, secondary only)
 
-### Step 3.1 - Install dependencies
+### Step 3.0 - Remove Old Phase 3 Artifacts
+
+Before rebuilding Phase 3 on the final gallery, clear old feature/database/retrieval outputs:
 
 ```powershell
-python -m pip install -r requirements.txt
+python scripts/phase3_retrieval/clean_phase3_outputs.py
 ```
 
-### Step 3.2 - Extract CNN + HSV features
+Actually delete them:
 
 ```powershell
-python scripts/phase3_retrieval/extract_features.py --metadata-csv data/processed/metadata/images.csv --processed-root data/processed --output-dir data/features --cnn-backbone resnet18 --hsv-bins 8,8,8 --device auto
+python scripts/phase3_retrieval/clean_phase3_outputs.py --yes
 ```
 
-Output:
+This removes only:
+- `data/features`
+- `outputs/retrieval`
+- `outputs/eval`
+- `outputs/experiments`
+- `outputs/manual_relevance`
+- `outputs/report_artifacts`
+- `outputs/demo_ui_queries`
 
+This does not remove:
+- `data/raw`
+- `data/processed`
+- `outputs/review`
+- `outputs/review_batch_2`
+
+Run extraction:
+
+```powershell
+python scripts/phase3_retrieval/extract_features.py `
+  --metadata-csv data/processed/metadata/images.csv `
+  --processed-root data/processed `
+  --output-dir data/features `
+  --device auto
+```
+
+Optional smoke test on a small subset:
+
+```powershell
+python scripts/phase3_retrieval/extract_features.py `
+  --metadata-csv data/processed/metadata/images.csv `
+  --processed-root data/processed `
+  --output-dir outputs/smoke/features_small `
+  --device cpu `
+  --limit 5
+```
+
+Expected outputs:
 - `data/features/images_manifest.csv`
-- `data/features/cnn_embeddings.npy`
-- `data/features/hsv_histograms.npy`
+- `data/features/descriptor_table.csv`
+- `data/features/global_hsv_hist.npy`
+- `data/features/regional_hsv_hist.npy`
+- `data/features/color_moments.npy`
+- `data/features/lbp_hist.npy`
+- `data/features/hog_descriptor.npy`
+- `data/features/cnn_embedding.npy`
 - `data/features/features.jsonl`
 - `data/features/config.json`
 
-### Step 3.3 - Build local SQLite feature database
+## Phase 4 - Build the SQLite Feature Database
+
+Create the DB-first retrieval database:
 
 ```powershell
-python scripts/phase3_retrieval/build_feature_db.py --features-dir data/features --db-path data/features/cbir_features.sqlite --overwrite
+python scripts/phase3_retrieval/build_feature_db.py `
+  --features-dir data/features `
+  --db-path data/features/cbir_features.sqlite `
+  --overwrite
 ```
 
-Tables:
-
+Main tables created:
 - `images`
-- `features`
-- `retrieval_logs`
+- `preprocessing_metadata`
+- `feature_types`
+- `image_features`
+- `queries`
+- `query_features`
+- `retrieval_runs`
+- `retrieval_results`
+- `relevance_judgments`
+- `experiments`
 
-### Step 3.4 - Run top-5 retrieval
+Architecture note:
+- this project uses **loose coupling**
+- the bird image files stay on the filesystem
+- SQLite stores metadata, descriptors, query cache, retrieval logs, judgments, and experiment summaries
+- for the report, map this implementation to functional multimedia DB modules:
+  - presentation / result presentation
+  - query manager
+  - metadata manager
+  - storage manager
+  - feature extraction + similarity layer
 
-Demo UI (upload image and view results):
+## Phase 5 - DB-Backed Retrieval
+
+Run a single retrieval query using one of the registered experiment configurations.
+
+### Step 5.1 - Query by Existing Gallery Image
 
 ```powershell
-python scripts/phase3_retrieval/demo_ui.py --features-dir data/features --processed-root data/processed --device auto --host 127.0.0.1 --port 7860
+python scripts/phase3_retrieval/retrieve_topk.py `
+  --db-path data/features/cbir_features.sqlite `
+  --processed-root data/processed `
+  --experiment-name handcrafted_only `
+  --query-image-id 88 `
+  --top-k 5 `
+  --output-csv outputs/retrieval/topk_results.csv `
+  --output-json outputs/retrieval/topk_results.json
 ```
 
-Then open: `http://127.0.0.1:7860`
-
-Query by `image_id`:
+### Step 5.2 - Query by External Image
 
 ```powershell
-python scripts/phase3_retrieval/retrieve_topk.py --features-dir data/features --processed-root data/processed --query-image-id 223 --mode fusion --top-k 5 --w-cnn 0.7 --w-hsv 0.3 --output-csv outputs/retrieval/topk_fusion_id223.csv
+python scripts/phase3_retrieval/retrieve_topk.py `
+  --db-path data/features/cbir_features.sqlite `
+  --processed-root data/processed `
+  --experiment-name fusion `
+  --query-image-path path\\to\\query.jpg `
+  --top-k 5 `
+  --output-csv outputs/retrieval/topk_external.csv `
+  --output-json outputs/retrieval/topk_external.json
 ```
 
-Query by external image:
+Available experiment names:
+- `handcrafted_only`
+- `cnn_only`
+- `fusion`
+- `ablation_no_regional_color`
+- `ablation_no_shape`
+
+Implementation note:
+- this is **similarity retrieval**, not exact-match filtering and not species classification
+- for the current `1000`-image target, retrieval uses exhaustive similarity comparison over the gallery
+- this is the baseline `kNN` strategy for the course project
+- advanced indexing structures can be discussed later as future work, but they are not required to validate the CBIR pipeline at this scale
+
+## Phase 6 - Experiments and Relevance Judgments
+
+Goal:
+- create a reusable query subset
+- run all experiment configurations
+- store species-proxy baseline labels
+- prepare manual relevance annotation
+
+### Step 6.1 - Run the Registered Experiments
 
 ```powershell
-python scripts/phase3_retrieval/retrieve_topk.py --features-dir data/features --query-image-path "D:\path\to\query.jpg" --mode fusion --top-k 5 --w-cnn 0.7 --w-hsv 0.3 --output-csv outputs/retrieval/topk_fusion_external.csv
+python scripts/phase3_retrieval/run_experiments.py `
+  --db-path data/features/cbir_features.sqlite `
+  --processed-root data/processed `
+  --query-count 50 `
+  --top-k 5 `
+  --seed 42 `
+  --output-dir outputs/experiments
 ```
 
-### Step 3.5 - Evaluate Precision@5
+Expected outputs:
+- `outputs/experiments/query_subset.csv`
+- `outputs/experiments/retrieval_runs.csv`
 
-Fusion:
+### Step 6.2 - Export Manual Relevance Template
 
 ```powershell
-python scripts/phase3_retrieval/evaluate_precision_at_k.py --features-dir data/features --mode fusion --k 5 --w-cnn 0.7 --w-hsv 0.3 --output-dir outputs/eval
+python scripts/phase3_retrieval/prepare_manual_relevance.py `
+  --db-path data/features/cbir_features.sqlite `
+  --top-k 5 `
+  --output-csv outputs/manual_relevance/manual_relevance_template.csv
 ```
 
-CNN only:
+Open the exported CSV and fill:
+- `relevance_grade = 0` for irrelevant
+- `relevance_grade = 1` for partially similar
+- `relevance_grade = 2` for highly similar
+
+### Step 6.3 - Import Manual Relevance Judgments
 
 ```powershell
-python scripts/phase3_retrieval/evaluate_precision_at_k.py --features-dir data/features --mode cnn --k 5 --output-dir outputs/eval
+python scripts/phase3_retrieval/import_relevance_judgments.py `
+  --db-path data/features/cbir_features.sqlite `
+  --judgments-csv outputs/manual_relevance/manual_relevance_template.csv
 ```
 
-HSV only:
+## Phase 7 - Evaluation
+
+Main evaluation story:
+- manual relevance is the **primary** CBIR evaluation
+- species proxy is a **secondary baseline**
+
+Metrics:
+- manual `nDCG@5`
+- manual `Precision@5`
+- species-proxy `Precision@5`
+
+Run evaluation:
 
 ```powershell
-python scripts/phase3_retrieval/evaluate_precision_at_k.py --features-dir data/features --mode hsv --k 5 --output-dir outputs/eval
+python scripts/phase3_retrieval/evaluate_retrieval.py `
+  --db-path data/features/cbir_features.sqlite `
+  --judgment-source both `
+  --k 5 `
+  --output-dir outputs/eval
+```
+
+Expected outputs:
+- `outputs/eval/manual_per_query.csv`
+- `outputs/eval/manual_summary.json`
+- `outputs/eval/species_proxy_per_query.csv`
+- `outputs/eval/species_proxy_summary.json`
+
+The script also writes summary metrics back into the `experiments` table.
+
+## Phase 8 - Report Artifacts
+
+Export report-ready artifacts:
+
+```powershell
+python scripts/phase3_retrieval/export_report_artifacts.py `
+  --db-path data/features/cbir_features.sqlite `
+  --features-dir data/features `
+  --output-dir outputs/report_artifacts `
+  --example-experiment fusion
+```
+
+Expected outputs:
+- `outputs/report_artifacts/descriptor_table.csv`
+- `outputs/report_artifacts/system_block_diagram.md`
+- `outputs/report_artifacts/experiment_summaries.csv`
+- `outputs/report_artifacts/example_retrieval_breakdown.json`
+
+Use these outputs to build the report sections that the assignment explicitly asks for:
+- system block diagram
+- functional architecture / module input-output description
+- schema or ERD of the multimedia database
+- feature rationale and information value
+- database organization and query mechanism
+- intermediate results of retrieval
+- comparison among experiment settings
+- qualitative discussion of success and failure cases
+
+## Optional - Demo UI
+
+After the database and retrieval core are stable, launch the optional Gradio demo:
+
+```powershell
+python scripts/phase3_retrieval/demo_ui.py `
+  --db-path data/features/cbir_features.sqlite `
+  --processed-root data/processed `
+  --device auto `
+  --host 127.0.0.1 `
+  --port 7860
+```
+
+Open:
+
+```text
+http://127.0.0.1:7860
 ```

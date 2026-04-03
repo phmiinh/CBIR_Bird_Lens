@@ -1,15 +1,36 @@
 {
-  "created_at_utc": "2026-03-12T04:12:53.709853+00:00",
+  "created_at_utc": "2026-04-02T08:19:14.560469+00:00",
+  "dataset_version": "normalized_gallery_1000",
   "metadata_csv": "D:\\PTIT\\Multimedia Database\\data\\processed\\metadata\\images.csv",
   "processed_root": "D:\\PTIT\\Multimedia Database\\data\\processed",
+  "output_dir": "D:\\PTIT\\Multimedia Database\\data\\features",
   "cnn_backbone": "resnet18",
+  "device_used": "cpu",
+  "include_cnn": true,
   "hsv_bins": [
     8,
     8,
     8
   ],
-  "cnn_dim": 512,
-  "hsv_dim": 512,
-  "num_images": 500,
-  "device_used": "cpu"
+  "regional_grid": [
+    2,
+    2
+  ],
+  "num_images": 1000,
+  "feature_dims": {
+    "global_hsv_hist": 512,
+    "regional_hsv_hist": 2048,
+    "color_moments": 9,
+    "lbp_hist": 10,
+    "hog_descriptor": 6084,
+    "cnn_embedding": 512
+  },
+  "feature_file_map": {
+    "global_hsv_hist": "global_hsv_hist.npy",
+    "regional_hsv_hist": "regional_hsv_hist.npy",
+    "color_moments": "color_moments.npy",
+    "lbp_hist": "lbp_hist.npy",
+    "hog_descriptor": "hog_descriptor.npy",
+    "cnn_embedding": "cnn_embedding.npy"
+  }
 }

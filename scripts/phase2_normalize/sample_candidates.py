@@ -77,6 +77,12 @@ def parse_args() -> argparse.Namespace:
         help="Prefill keep/notes from a reviewed CSV (useful when regenerating previews with a new padding ratio).",
     )
     parser.add_argument(
+        "--exclude-reviewed-csv",
+        action="append",
+        default=[],
+        help="Exclude all image_id entries that already appear in a previous candidates/reviewed CSV. Repeat this flag to exclude multiple earlier batches.",
+    )
+    parser.add_argument(
         "--sampling-strategy",
         choices=("assignment", "random"),
         default="assignment",
@@ -1146,6 +1152,17 @@ def load_prefill_state(file_path: Path) -> Dict[int, Dict[str, str]]:
     return state
 
 
+def load_excluded_image_ids(file_paths: List[Path]) -> set[int]:
+    excluded: set[int] = set()
+    for file_path in file_paths:
+        rows = _read_csv_rows(file_path)
+        for row in rows:
+            image_id = _parse_image_id(row.get("image_id", ""))
+            if image_id is not None:
+                excluded.add(image_id)
+    return excluded
+
+
 def reuse_sampled_records(selection_csv: Path, enriched_records: List[dict]) -> List[dict]:
     rows = _read_csv_rows(selection_csv)
     enriched_by_id = {int(record["image_id"]): record for record in enriched_records}
@@ -1195,6 +1212,7 @@ def main() -> int:
     enriched_records = enrich_records(records, dataset_root)
     reuse_selection_csv = Path(args.reuse_selection_csv).resolve() if args.reuse_selection_csv else None
     prefill_keep_csv = Path(args.prefill_keep_csv).resolve() if args.prefill_keep_csv else None
+    exclude_reviewed_csvs = [Path(value).resolve() for value in args.exclude_reviewed_csv]
 
     if reuse_selection_csv:
         if not reuse_selection_csv.exists():
@@ -1204,6 +1222,23 @@ def main() -> int:
         if prefill_keep_csv is None:
             prefill_keep_csv = reuse_selection_csv
     else:
+        for file_path in exclude_reviewed_csvs:
+            if not file_path.exists():
+                raise FileNotFoundError(f"Could not find exclude-reviewed CSV: {file_path}")
+        if exclude_reviewed_csvs:
+            excluded_image_ids = load_excluded_image_ids(exclude_reviewed_csvs)
+            enriched_records = [
+                record for record in enriched_records if int(record["image_id"]) not in excluded_image_ids
+            ]
+            print(
+                f"Excluded {len(excluded_image_ids)} previously reviewed image_ids from "
+                f"{len(exclude_reviewed_csvs)} CSV file(s)."
+            )
+            if args.sample_size > len(enriched_records):
+                raise ValueError(
+                    f"Sample size {args.sample_size} cannot be satisfied after exclusions. "
+                    f"Remaining candidates: {len(enriched_records)}."
+                )
         sampled_records = choose_records(
             enriched_records,
             sample_size=args.sample_size,

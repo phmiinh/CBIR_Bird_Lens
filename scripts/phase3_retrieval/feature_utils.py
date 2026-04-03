@@ -8,14 +8,139 @@ from typing import Dict, Iterable, List, Tuple
 import numpy as np
 import torch
 from PIL import Image
+from skimage.feature import hog, local_binary_pattern
 from torch import nn
 from torchvision import models
+
+GLOBAL_HSV_BINS = (8, 8, 8)
+REGIONAL_GRID = (2, 2)
+LBP_POINTS = 8
+LBP_RADIUS = 1
+HOG_ORIENTATIONS = 9
+HOG_PIXELS_PER_CELL = (16, 16)
+HOG_CELLS_PER_BLOCK = (2, 2)
+
+FEATURE_FILE_MAP = {
+    "global_hsv_hist": "global_hsv_hist.npy",
+    "regional_hsv_hist": "regional_hsv_hist.npy",
+    "color_moments": "color_moments.npy",
+    "lbp_hist": "lbp_hist.npy",
+    "hog_descriptor": "hog_descriptor.npy",
+    "cnn_embedding": "cnn_embedding.npy",
+}
+
+FEATURE_SPECS = {
+    "global_hsv_hist": {
+        "display_name": "Global HSV Histogram",
+        "similarity_metric": "chi_square_distance_then_inverse",
+        "is_primary": 1,
+        "information_value": "Overall color distribution of the bird image.",
+        "strengths": "Robust for dominant plumage color and large color contrast.",
+        "weaknesses": "Weak on spatial arrangement and fine texture.",
+        "extraction_params": {"bins": list(GLOBAL_HSV_BINS)},
+    },
+    "regional_hsv_hist": {
+        "display_name": "Regional HSV Histogram",
+        "similarity_metric": "chi_square_distance_then_inverse",
+        "is_primary": 1,
+        "information_value": "Spatial color layout using a fixed 2x2 grid.",
+        "strengths": "Captures color placement after normalization and side-view alignment.",
+        "weaknesses": "Sensitive to crop shifts and local occlusion.",
+        "extraction_params": {"bins": list(GLOBAL_HSV_BINS), "grid": list(REGIONAL_GRID)},
+    },
+    "color_moments": {
+        "display_name": "Color Moments",
+        "similarity_metric": "euclidean_distance_then_inverse",
+        "is_primary": 1,
+        "information_value": "Coarse HSV statistics via mean, standard deviation, and skewness.",
+        "strengths": "Compact descriptor with good global color summary.",
+        "weaknesses": "Too coarse for layout and local patterns.",
+        "extraction_params": {"channels": ["H", "S", "V"], "moments": ["mean", "std", "skewness"]},
+    },
+    "lbp_hist": {
+        "display_name": "LBP Histogram",
+        "similarity_metric": "chi_square_distance_then_inverse",
+        "is_primary": 1,
+        "information_value": "Local micro-texture patterns in grayscale.",
+        "strengths": "Useful for feather texture and repeated local patterns.",
+        "weaknesses": "Weak for global shape and large-scale geometry.",
+        "extraction_params": {"points": LBP_POINTS, "radius": LBP_RADIUS, "method": "uniform"},
+    },
+    "hog_descriptor": {
+        "display_name": "HOG Descriptor",
+        "similarity_metric": "cosine_similarity",
+        "is_primary": 1,
+        "information_value": "Edge structure, contour, and pose information.",
+        "strengths": "Good for silhouette and body-part orientation.",
+        "weaknesses": "Less robust to cluttered edges and weak contrast.",
+        "extraction_params": {
+            "orientations": HOG_ORIENTATIONS,
+            "pixels_per_cell": list(HOG_PIXELS_PER_CELL),
+            "cells_per_block": list(HOG_CELLS_PER_BLOCK),
+            "block_norm": "L2-Hys",
+        },
+    },
+    "cnn_embedding": {
+        "display_name": "CNN Embedding",
+        "similarity_metric": "cosine_similarity",
+        "is_primary": 0,
+        "information_value": "High-level semantic visual embedding from pretrained ResNet18.",
+        "strengths": "Strong semantic abstraction and robust visual similarity.",
+        "weaknesses": "Lower explainability; treated as secondary in this project.",
+        "extraction_params": {"backbone": "resnet18", "pooling": "global_avg_pool"},
+    },
+}
+
+DEFAULT_EXPERIMENTS = {
+    "handcrafted_only": {
+        "weights": {
+            "regional_hsv_hist": 0.30,
+            "global_hsv_hist": 0.15,
+            "color_moments": 0.10,
+            "lbp_hist": 0.20,
+            "hog_descriptor": 0.25,
+        },
+        "notes": "Primary explainable descriptor stack without CNN.",
+    },
+    "cnn_only": {
+        "weights": {"cnn_embedding": 1.00},
+        "notes": "Semantic baseline using only the secondary deep descriptor.",
+    },
+    "fusion": {
+        "weights": {
+            "regional_hsv_hist": 0.24,
+            "global_hsv_hist": 0.12,
+            "color_moments": 0.08,
+            "lbp_hist": 0.16,
+            "hog_descriptor": 0.20,
+            "cnn_embedding": 0.20,
+        },
+        "notes": "Handcrafted-first fusion with CNN as a secondary complement.",
+    },
+    "ablation_no_regional_color": {
+        "weights": {
+            "global_hsv_hist": 0.25,
+            "color_moments": 0.15,
+            "lbp_hist": 0.25,
+            "hog_descriptor": 0.35,
+        },
+        "notes": "Ablation removing spatial color layout information.",
+    },
+    "ablation_no_shape": {
+        "weights": {
+            "regional_hsv_hist": 0.55,
+            "global_hsv_hist": 0.25,
+            "color_moments": 0.20,
+        },
+        "notes": "Ablation removing texture and shape descriptors.",
+    },
+}
 
 
 def parse_bins(text: str) -> Tuple[int, int, int]:
     raw = str(text).strip()
     if not raw:
-        return 8, 8, 8
+        return GLOBAL_HSV_BINS
     parts = [part.strip() for part in raw.split(",")]
     if len(parts) != 3:
         raise ValueError("HSV bins must have format h,s,v (example: 8,8,8).")
@@ -37,6 +162,17 @@ def write_csv_rows(file_path: Path, rows: Iterable[dict], fieldnames: List[str])
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+
+
+def save_json(file_path: Path, payload: dict) -> None:
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=True)
+
+
+def load_json(file_path: Path) -> dict:
+    with file_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def resolve_processed_image_path(row: dict, processed_root: Path) -> Path:
@@ -91,15 +227,23 @@ def load_cnn_model(backbone: str, device: torch.device) -> nn.Module:
     return model
 
 
+def center_square_crop_resize(image: Image.Image, target_size: Tuple[int, int] = (224, 224)) -> Image.Image:
+    rgb = image.convert("RGB")
+    side = min(rgb.width, rgb.height)
+    left = max(0, (rgb.width - side) // 2)
+    top = max(0, (rgb.height - side) // 2)
+    crop = rgb.crop((left, top, left + side, top + side))
+    return crop.resize(target_size, Image.Resampling.LANCZOS)
+
+
 def preprocess_for_cnn(image: Image.Image, target_size: int = 224) -> torch.Tensor:
-    rgb = image.convert("RGB").resize((target_size, target_size), Image.Resampling.LANCZOS)
+    rgb = center_square_crop_resize(image, target_size=(target_size, target_size))
     array = np.asarray(rgb, dtype=np.float32) / 255.0
     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
     std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
     normalized = (array - mean) / std
     chw = np.transpose(normalized, (2, 0, 1))
-    tensor = torch.from_numpy(chw).unsqueeze(0)
-    return tensor
+    return torch.from_numpy(chw).unsqueeze(0)
 
 
 def extract_cnn_embedding(model: nn.Module, image: Image.Image, device: torch.device) -> np.ndarray:
@@ -109,10 +253,9 @@ def extract_cnn_embedding(model: nn.Module, image: Image.Image, device: torch.de
     return vector
 
 
-def extract_hsv_histogram(image: Image.Image, bins: Tuple[int, int, int]) -> np.ndarray:
-    hsv = np.asarray(image.convert("HSV"), dtype=np.uint8)
+def _compute_hsv_histogram(hsv_image: np.ndarray, bins: Tuple[int, int, int]) -> np.ndarray:
     hist, _ = np.histogramdd(
-        sample=(hsv[:, :, 0].ravel(), hsv[:, :, 1].ravel(), hsv[:, :, 2].ravel()),
+        sample=(hsv_image[:, :, 0].ravel(), hsv_image[:, :, 1].ravel(), hsv_image[:, :, 2].ravel()),
         bins=bins,
         range=((0, 256), (0, 256), (0, 256)),
     )
@@ -121,6 +264,98 @@ def extract_hsv_histogram(image: Image.Image, bins: Tuple[int, int, int]) -> np.
     if denominator > 0.0:
         vector /= denominator
     return vector
+
+
+def extract_global_hsv_histogram(image: Image.Image, bins: Tuple[int, int, int]) -> np.ndarray:
+    hsv = np.asarray(image.convert("HSV"), dtype=np.uint8)
+    return _compute_hsv_histogram(hsv, bins=bins)
+
+
+def extract_regional_hsv_histogram(
+    image: Image.Image,
+    bins: Tuple[int, int, int],
+    grid: Tuple[int, int] = REGIONAL_GRID,
+) -> np.ndarray:
+    hsv = np.asarray(image.convert("HSV"), dtype=np.uint8)
+    rows, cols = grid
+    cell_vectors = []
+    for row_index in range(rows):
+        for col_index in range(cols):
+            y0 = (row_index * hsv.shape[0]) // rows
+            y1 = ((row_index + 1) * hsv.shape[0]) // rows
+            x0 = (col_index * hsv.shape[1]) // cols
+            x1 = ((col_index + 1) * hsv.shape[1]) // cols
+            cell = hsv[y0:y1, x0:x1]
+            cell_vectors.append(_compute_hsv_histogram(cell, bins=bins))
+
+    vector = np.concatenate(cell_vectors).astype(np.float32)
+    denominator = float(vector.sum())
+    if denominator > 0.0:
+        vector /= denominator
+    return vector
+
+
+def extract_color_moments(image: Image.Image) -> np.ndarray:
+    hsv = np.asarray(image.convert("HSV"), dtype=np.float32) / 255.0
+    moments = []
+    for channel_index in range(3):
+        channel = hsv[:, :, channel_index]
+        mean = float(np.mean(channel))
+        std = float(np.std(channel))
+        centered = channel - mean
+        third_moment = float(np.mean(centered ** 3))
+        skewness = np.sign(third_moment) * (abs(third_moment) ** (1.0 / 3.0))
+        moments.extend([mean, std, skewness])
+    return np.asarray(moments, dtype=np.float32)
+
+
+def extract_lbp_histogram(
+    image: Image.Image,
+    points: int = LBP_POINTS,
+    radius: int = LBP_RADIUS,
+) -> np.ndarray:
+    gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    lbp = local_binary_pattern(gray, P=points, R=radius, method="uniform")
+    bins = np.arange(0, points + 3, dtype=np.float32)
+    hist, _ = np.histogram(lbp.ravel(), bins=bins, range=(0, points + 2))
+    vector = hist.astype(np.float32)
+    denominator = float(vector.sum())
+    if denominator > 0.0:
+        vector /= denominator
+    return vector
+
+
+def extract_hog_descriptor(image: Image.Image) -> np.ndarray:
+    gray = np.asarray(image.convert("L"), dtype=np.float32) / 255.0
+    vector = hog(
+        gray,
+        orientations=HOG_ORIENTATIONS,
+        pixels_per_cell=HOG_PIXELS_PER_CELL,
+        cells_per_block=HOG_CELLS_PER_BLOCK,
+        block_norm="L2-Hys",
+        feature_vector=True,
+    )
+    return np.asarray(vector, dtype=np.float32)
+
+
+def extract_all_features(
+    image: Image.Image,
+    bins: Tuple[int, int, int],
+    regional_grid: Tuple[int, int],
+    cnn_model: nn.Module | None,
+    device: torch.device | None,
+) -> Dict[str, np.ndarray]:
+    rgb = image.convert("RGB")
+    features = {
+        "global_hsv_hist": extract_global_hsv_histogram(rgb, bins=bins),
+        "regional_hsv_hist": extract_regional_hsv_histogram(rgb, bins=bins, grid=regional_grid),
+        "color_moments": extract_color_moments(rgb),
+        "lbp_hist": extract_lbp_histogram(rgb),
+        "hog_descriptor": extract_hog_descriptor(rgb),
+    }
+    if cnn_model is not None and device is not None:
+        features["cnn_embedding"] = extract_cnn_embedding(cnn_model, rgb, device)
+    return features
 
 
 def l2_normalize(vectors: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -134,27 +369,90 @@ def cosine_similarity_scores(query: np.ndarray, matrix: np.ndarray) -> np.ndarra
     return matrix_norm @ query_norm
 
 
-def chi_square_similarity_scores(query: np.ndarray, matrix: np.ndarray, eps: float = 1e-10) -> np.ndarray:
+def chi_square_distance(query: np.ndarray, matrix: np.ndarray, eps: float = 1e-10) -> np.ndarray:
     numerator = (matrix - query) ** 2
     denominator = matrix + query + eps
-    distance = 0.5 * np.sum(numerator / denominator, axis=1)
+    return 0.5 * np.sum(numerator / denominator, axis=1)
+
+
+def euclidean_distance(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    return np.linalg.norm(matrix - query, axis=1)
+
+
+def inverse_distance_similarity(distance: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + distance)
 
 
-def save_json(file_path: Path, payload: dict) -> None:
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=True)
+def chi_square_similarity_scores(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    return inverse_distance_similarity(chi_square_distance(query, matrix))
 
 
-def load_json(file_path: Path) -> dict:
-    with file_path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+def euclidean_similarity_scores(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    return inverse_distance_similarity(euclidean_distance(query, matrix))
 
 
 def index_by_image_id(rows: List[dict]) -> Dict[int, int]:
     index: Dict[int, int] = {}
-    for i, row in enumerate(rows):
-        image_id = int(row["image_id"])
-        index[image_id] = i
+    for item_index, row in enumerate(rows):
+        index[int(row["image_id"])] = item_index
     return index
+
+
+def load_feature_arrays(feature_dir: Path, feature_names: Iterable[str]) -> Dict[str, np.ndarray]:
+    arrays = {}
+    for name in feature_names:
+        file_name = FEATURE_FILE_MAP[name]
+        arrays[name] = np.load(feature_dir / file_name)
+    return arrays
+
+
+def build_descriptor_table_rows(feature_dims: Dict[str, int]) -> List[dict]:
+    rows = []
+    for name, spec in FEATURE_SPECS.items():
+        rows.append(
+            {
+                "feature_name": name,
+                "display_name": spec["display_name"],
+                "vector_dim": feature_dims.get(name, 0),
+                "similarity_metric": spec["similarity_metric"],
+                "is_primary": spec["is_primary"],
+                "information_value": spec["information_value"],
+                "strengths": spec["strengths"],
+                "weaknesses": spec["weaknesses"],
+            }
+        )
+    return rows
+
+
+def build_feature_type_rows(feature_dims: Dict[str, int]) -> List[dict]:
+    rows = []
+    for feature_type_id, name in enumerate(FEATURE_SPECS.keys(), start=1):
+        spec = FEATURE_SPECS[name]
+        rows.append(
+            {
+                "feature_type_id": feature_type_id,
+                "name": name,
+                "vector_dim": int(feature_dims[name]),
+                "similarity_metric": spec["similarity_metric"],
+                "extraction_params_json": json.dumps(spec["extraction_params"], ensure_ascii=True),
+                "is_primary": int(spec["is_primary"]),
+            }
+        )
+    return rows
+
+
+def build_experiment_rows(dataset_version: str) -> List[dict]:
+    rows = []
+    for experiment_index, (name, config) in enumerate(DEFAULT_EXPERIMENTS.items(), start=1):
+        rows.append(
+            {
+                "experiment_id": experiment_index,
+                "name": name,
+                "feature_set_json": json.dumps(sorted(config["weights"].keys()), ensure_ascii=True),
+                "weighting_json": json.dumps(config["weights"], ensure_ascii=True),
+                "dataset_version": dataset_version,
+                "summary_metrics_json": json.dumps({}, ensure_ascii=True),
+                "notes": config["notes"],
+            }
+        )
+    return rows

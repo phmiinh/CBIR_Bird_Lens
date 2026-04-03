@@ -4,15 +4,17 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
 from feature_utils import (
-    extract_cnn_embedding,
-    extract_hsv_histogram,
+    FEATURE_FILE_MAP,
+    REGIONAL_GRID,
+    build_descriptor_table_rows,
+    extract_all_features,
     load_cnn_model,
     load_csv_rows,
     parse_bins,
@@ -25,7 +27,7 @@ from feature_utils import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Extract CNN embeddings and HSV histograms for normalized bird images."
+        description="Extract explainable bird-image descriptors and optional CNN embeddings."
     )
     parser.add_argument(
         "--metadata-csv",
@@ -46,12 +48,12 @@ def parse_args() -> argparse.Namespace:
         "--cnn-backbone",
         choices=("resnet18", "resnet50"),
         default="resnet18",
-        help="Pretrained CNN backbone used for embedding extraction.",
+        help="Pretrained CNN backbone used only for the secondary embedding feature.",
     )
     parser.add_argument(
         "--hsv-bins",
         default="8,8,8",
-        help="Histogram bins in format h,s,v (example: 8,8,8).",
+        help="Histogram bins in format h,s,v (default: 8,8,8).",
     )
     parser.add_argument(
         "--device",
@@ -59,7 +61,86 @@ def parse_args() -> argparse.Namespace:
         default="auto",
         help="Execution device for CNN extraction.",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Optional cap for quick smoke tests. Use 0 to process the full metadata CSV.",
+    )
     return parser.parse_args()
+
+
+def _truthy(value: object) -> int:
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "yes", "y"}:
+        return 1
+    if raw in {"0", "false", "no", "n"}:
+        return 0
+    return 0
+
+
+def _safe_int(value: object, fallback: int = 0) -> int:
+    raw = str(value).strip()
+    if not raw:
+        return fallback
+    return int(float(raw))
+
+
+def _safe_float(value: object, fallback: float = 0.0) -> float:
+    raw = str(value).strip()
+    if not raw:
+        return fallback
+    return float(raw)
+
+
+def _resolve_preprocess_json(row: dict) -> str:
+    if str(row.get("preprocess_params_json", "")).strip():
+        return str(row["preprocess_params_json"])
+    if str(row.get("preprocess_params", "")).strip():
+        return str(row["preprocess_params"])
+    payload = {
+        "method": "bbox_square_crop_then_resize",
+        "padding_ratio": _safe_float(row.get("padding_ratio", 0.0), 0.0),
+        "target_size": [
+            _safe_int(row.get("target_width", 224), 224),
+            _safe_int(row.get("target_height", 224), 224),
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=True)
+
+
+def _build_manifest_row(row: dict, resolved_image: Image.Image) -> dict:
+    target_width = _safe_int(row.get("target_width", resolved_image.width), resolved_image.width)
+    target_height = _safe_int(row.get("target_height", resolved_image.height), resolved_image.height)
+    width = _safe_int(row.get("width", target_width), target_width)
+    height = _safe_int(row.get("height", target_height), target_height)
+
+    return {
+        "image_id": _safe_int(row["image_id"]),
+        "species_id": _safe_int(row.get("species_id", 0)),
+        "species_name": row.get("species_name", ""),
+        "split": row.get("split", ""),
+        "source_relative_path": row.get("source_relative_path", ""),
+        "processed_relative_path": row.get("processed_relative_path", ""),
+        "width": width,
+        "height": height,
+        "is_perching": _truthy(row.get("is_perching", 1 if _truthy(row.get("keep", 1)) else 0)),
+        "is_side_view": _truthy(row.get("is_side_view", 1)),
+        "keep": _truthy(row.get("keep", 1)),
+        "notes": row.get("notes", ""),
+        "bbox_x": _safe_float(row.get("bbox_x", 0.0)),
+        "bbox_y": _safe_float(row.get("bbox_y", 0.0)),
+        "bbox_w": _safe_float(row.get("bbox_w", 0.0)),
+        "bbox_h": _safe_float(row.get("bbox_h", 0.0)),
+        "crop_left": _safe_int(row.get("crop_left", 0)),
+        "crop_top": _safe_int(row.get("crop_top", 0)),
+        "crop_right": _safe_int(row.get("crop_right", target_width)),
+        "crop_bottom": _safe_int(row.get("crop_bottom", target_height)),
+        "target_width": target_width,
+        "target_height": target_height,
+        "padding_ratio": _safe_float(row.get("padding_ratio", 0.0)),
+        "preprocess_params_json": _resolve_preprocess_json(row),
+    }
 
 
 def main() -> int:
@@ -73,76 +154,123 @@ def main() -> int:
     rows = load_csv_rows(metadata_csv)
     if not rows:
         raise ValueError(f"No rows found in metadata CSV: {metadata_csv}")
+    if int(args.limit) > 0:
+        rows = rows[: int(args.limit)]
 
     bins = parse_bins(args.hsv_bins)
+    feature_store: Dict[str, List[np.ndarray]] = {
+        "global_hsv_hist": [],
+        "regional_hsv_hist": [],
+        "color_moments": [],
+        "lbp_hist": [],
+        "hog_descriptor": [],
+    }
+
     device = select_device(args.device)
-    model = load_cnn_model(args.cnn_backbone, device)
+    cnn_model = load_cnn_model(args.cnn_backbone, device)
+    feature_store["cnn_embedding"] = []
 
-    cnn_vectors: List[np.ndarray] = []
-    hsv_vectors: List[np.ndarray] = []
     manifest_rows = []
-
-    for row in tqdm(rows, desc="Extracting features"):
+    for row in tqdm(rows, desc="Extracting descriptor set"):
         image_path = resolve_processed_image_path(row, processed_root)
         with Image.open(image_path) as image:
             rgb_image = image.convert("RGB")
-            cnn_vector = extract_cnn_embedding(model, rgb_image, device)
-            hsv_vector = extract_hsv_histogram(rgb_image, bins=bins)
+            feature_map = extract_all_features(
+                image=rgb_image,
+                bins=bins,
+                regional_grid=REGIONAL_GRID,
+                cnn_model=cnn_model,
+                device=device,
+            )
+            manifest_rows.append(_build_manifest_row(row, rgb_image))
 
-        cnn_vectors.append(cnn_vector)
-        hsv_vectors.append(hsv_vector)
-        manifest_rows.append(
-            {
-                "image_id": int(row["image_id"]),
-                "species_id": int(row["species_id"]),
-                "species_name": row["species_name"],
-                "split": row.get("split", ""),
-                "processed_relative_path": row.get("processed_relative_path", ""),
-            }
-        )
+        for feature_name, vector in feature_map.items():
+            if feature_name not in feature_store:
+                feature_store[feature_name] = []
+            feature_store[feature_name].append(np.asarray(vector, dtype=np.float32))
 
-    cnn_matrix = np.vstack(cnn_vectors).astype(np.float32)
-    hsv_matrix = np.vstack(hsv_vectors).astype(np.float32)
+    feature_arrays: Dict[str, np.ndarray] = {}
+    for feature_name, vectors in feature_store.items():
+        feature_arrays[feature_name] = np.vstack(vectors).astype(np.float32)
+        np.save(output_dir / FEATURE_FILE_MAP[feature_name], feature_arrays[feature_name])
 
-    np.save(output_dir / "cnn_embeddings.npy", cnn_matrix)
-    np.save(output_dir / "hsv_histograms.npy", hsv_matrix)
+    manifest_fieldnames = [
+        "image_id",
+        "species_id",
+        "species_name",
+        "split",
+        "source_relative_path",
+        "processed_relative_path",
+        "width",
+        "height",
+        "is_perching",
+        "is_side_view",
+        "keep",
+        "notes",
+        "bbox_x",
+        "bbox_y",
+        "bbox_w",
+        "bbox_h",
+        "crop_left",
+        "crop_top",
+        "crop_right",
+        "crop_bottom",
+        "target_width",
+        "target_height",
+        "padding_ratio",
+        "preprocess_params_json",
+    ]
+    write_csv_rows(output_dir / "images_manifest.csv", manifest_rows, manifest_fieldnames)
 
+    feature_dims = {name: int(matrix.shape[1]) for name, matrix in feature_arrays.items()}
+    descriptor_rows = build_descriptor_table_rows(feature_dims)
     write_csv_rows(
-        output_dir / "images_manifest.csv",
-        manifest_rows,
-        fieldnames=["image_id", "species_id", "species_name", "split", "processed_relative_path"],
+        output_dir / "descriptor_table.csv",
+        descriptor_rows,
+        [
+            "feature_name",
+            "display_name",
+            "vector_dim",
+            "similarity_metric",
+            "is_primary",
+            "information_value",
+            "strengths",
+            "weaknesses",
+        ],
     )
 
     features_jsonl = output_dir / "features.jsonl"
+    ordered_feature_names = list(feature_arrays.keys())
     with features_jsonl.open("w", encoding="utf-8") as handle:
-        for idx, row in enumerate(manifest_rows):
-            payload = {
-                "image_id": row["image_id"],
-                "cnn_embedding": cnn_matrix[idx].tolist(),
-                "hsv_histogram": hsv_matrix[idx].tolist(),
-            }
+        for row_index, row in enumerate(manifest_rows):
+            payload = {"image_id": row["image_id"]}
+            for feature_name in ordered_feature_names:
+                payload[feature_name] = feature_arrays[feature_name][row_index].astype(float).tolist()
             handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
 
-    save_json(
-        output_dir / "config.json",
-        {
-            "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "metadata_csv": str(metadata_csv),
-            "processed_root": str(processed_root),
-            "cnn_backbone": args.cnn_backbone,
-            "hsv_bins": list(bins),
-            "cnn_dim": int(cnn_matrix.shape[1]),
-            "hsv_dim": int(hsv_matrix.shape[1]),
-            "num_images": int(cnn_matrix.shape[0]),
-            "device_used": str(device),
-        },
-    )
+    config = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "dataset_version": f"normalized_gallery_{len(manifest_rows)}",
+        "metadata_csv": str(metadata_csv),
+        "processed_root": str(processed_root),
+        "output_dir": str(output_dir),
+        "cnn_backbone": args.cnn_backbone,
+        "device_used": str(device),
+        "include_cnn": True,
+        "hsv_bins": list(bins),
+        "regional_grid": list(REGIONAL_GRID),
+        "num_images": int(len(manifest_rows)),
+        "feature_dims": feature_dims,
+        "feature_file_map": FEATURE_FILE_MAP,
+    }
+    save_json(output_dir / "config.json", config)
 
-    print(f"Saved manifest:        {output_dir / 'images_manifest.csv'}")
-    print(f"Saved CNN embeddings:  {output_dir / 'cnn_embeddings.npy'}")
-    print(f"Saved HSV histograms:  {output_dir / 'hsv_histograms.npy'}")
-    print(f"Saved feature JSONL:   {features_jsonl}")
-    print(f"Saved config:          {output_dir / 'config.json'}")
+    print(f"Saved manifest:          {output_dir / 'images_manifest.csv'}")
+    print(f"Saved descriptor table: {output_dir / 'descriptor_table.csv'}")
+    for feature_name in ordered_feature_names:
+        print(f"Saved {feature_name}: {output_dir / FEATURE_FILE_MAP[feature_name]}")
+    print(f"Saved feature JSONL:     {features_jsonl}")
+    print(f"Saved config:            {output_dir / 'config.json'}")
     return 0
 
 

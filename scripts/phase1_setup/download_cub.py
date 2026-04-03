@@ -7,7 +7,35 @@ import sys
 import zipfile
 from pathlib import Path
 
-from cub_utils import locate_cub_root
+REQUIRED_FILES = (
+    "images.txt",
+    "bounding_boxes.txt",
+    "image_class_labels.txt",
+    "classes.txt",
+    "train_test_split.txt",
+)
+
+
+def locate_cub_root(base_dir: Path) -> Path:
+    base_dir = base_dir.resolve()
+    candidates = []
+
+    for images_file in base_dir.rglob("images.txt"):
+        parent = images_file.parent
+        if all((parent / file_name).exists() for file_name in REQUIRED_FILES):
+            candidates.append(parent)
+
+    if all((base_dir / file_name).exists() for file_name in REQUIRED_FILES):
+        candidates.append(base_dir)
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not locate a CUB-200-2011 root inside {base_dir}. "
+            "Expected dataset metadata files were not found."
+        )
+
+    candidates.sort(key=lambda path: (len(path.parts), len(str(path))))
+    return candidates[0]
 
 
 def parse_args() -> argparse.Namespace:
