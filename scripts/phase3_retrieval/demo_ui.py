@@ -37,7 +37,10 @@ def build_app(engine: RetrievalEngine) -> gr.Blocks:
             experiment_name=experiment_name,
             top_k=int(top_k),
             query_image_path=str(temp_path),
-            persist=True,
+            # Gradio callbacks run in worker threads. For the demo UI we only
+            # need live retrieval results, not DB logging, so avoid cross-thread
+            # SQLite writes here.
+            persist=False,
         )
 
         gallery_items = []

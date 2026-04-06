@@ -266,9 +266,37 @@ Architecture note:
 
 ## Phase 5 - DB-Backed Retrieval
 
-Run a single retrieval query using one of the registered experiment configurations.
+Recommended demo path:
+- launch a localhost web UI on top of the DB-backed retrieval core
+- upload a query image
+- inspect the ranked top-5 results and retrieval payload
 
-### Step 5.1 - Query by Existing Gallery Image
+### Step 5.1 - Launch the Local Retrieval UI
+
+```powershell
+python scripts/phase3_retrieval/demo_ui.py `
+  --db-path data/features/cbir_features.sqlite `
+  --processed-root data/processed `
+  --device auto `
+  --host 127.0.0.1 `
+  --port 7860
+```
+
+Open:
+
+```text
+http://127.0.0.1:7860
+```
+
+In the UI:
+- upload a bird query image
+- choose one experiment configuration
+- keep `Top K = 5` for the course requirement
+- inspect both the visual ranking and the JSON payload
+
+### Step 5.2 - Optional CLI Retrieval
+
+If you still need a scriptable terminal-only retrieval command for reproducible logs, use:
 
 ```powershell
 python scripts/phase3_retrieval/retrieve_topk.py `
@@ -279,19 +307,6 @@ python scripts/phase3_retrieval/retrieve_topk.py `
   --top-k 5 `
   --output-csv outputs/retrieval/topk_results.csv `
   --output-json outputs/retrieval/topk_results.json
-```
-
-### Step 5.2 - Query by External Image
-
-```powershell
-python scripts/phase3_retrieval/retrieve_topk.py `
-  --db-path data/features/cbir_features.sqlite `
-  --processed-root data/processed `
-  --experiment-name fusion `
-  --query-image-path path\\to\\query.jpg `
-  --top-k 5 `
-  --output-csv outputs/retrieval/topk_external.csv `
-  --output-json outputs/retrieval/topk_external.json
 ```
 
 Available experiment names:
@@ -412,19 +427,4 @@ Use these outputs to build the report sections that the assignment explicitly as
 
 ## Optional - Demo UI
 
-After the database and retrieval core are stable, launch the optional Gradio demo:
-
-```powershell
-python scripts/phase3_retrieval/demo_ui.py `
-  --db-path data/features/cbir_features.sqlite `
-  --processed-root data/processed `
-  --device auto `
-  --host 127.0.0.1 `
-  --port 7860
-```
-
-Open:
-
-```text
-http://127.0.0.1:7860
-```
+The recommended interactive demo path is already defined in **Phase 5.1**.
