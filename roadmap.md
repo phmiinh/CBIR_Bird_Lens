@@ -1,4 +1,4 @@
-# Execution Pipeline
+# Execution Roadmap
 
 This document describes the **working command flow** for the DB-first CBIR project.
 
@@ -173,13 +173,13 @@ Descriptor set:
 Before rebuilding Phase 3 on the final gallery, clear old feature/database/retrieval outputs:
 
 ```powershell
-python scripts/phase3_retrieval/clean_phase3_outputs.py
+python scripts/phase3_descriptor_extraction/clean_phase_outputs.py
 ```
 
 Actually delete them:
 
 ```powershell
-python scripts/phase3_retrieval/clean_phase3_outputs.py --yes
+python scripts/phase3_descriptor_extraction/clean_phase_outputs.py --yes
 ```
 
 This removes only:
@@ -200,7 +200,7 @@ This does not remove:
 Run extraction:
 
 ```powershell
-python scripts/phase3_retrieval/extract_features.py `
+python scripts/phase3_descriptor_extraction/extract_features.py `
   --metadata-csv data/processed/metadata/images.csv `
   --processed-root data/processed `
   --output-dir data/features `
@@ -210,7 +210,7 @@ python scripts/phase3_retrieval/extract_features.py `
 Optional smoke test on a small subset:
 
 ```powershell
-python scripts/phase3_retrieval/extract_features.py `
+python scripts/phase3_descriptor_extraction/extract_features.py `
   --metadata-csv data/processed/metadata/images.csv `
   --processed-root data/processed `
   --output-dir outputs/smoke/features_small `
@@ -235,7 +235,7 @@ Expected outputs:
 Create the DB-first retrieval database:
 
 ```powershell
-python scripts/phase3_retrieval/build_feature_db.py `
+python scripts/phase4_feature_database/build_feature_db.py `
   --features-dir data/features `
   --db-path data/features/cbir_features.sqlite `
   --overwrite
@@ -274,7 +274,7 @@ Recommended demo path:
 ### Step 5.1 - Launch the Local Retrieval UI
 
 ```powershell
-python scripts/phase3_retrieval/demo_ui.py `
+python scripts/phase5_retrieval/demo_ui.py `
   --db-path data/features/cbir_features.sqlite `
   --processed-root data/processed `
   --device auto `
@@ -299,7 +299,7 @@ In the UI:
 If you still need a scriptable terminal-only retrieval command for reproducible logs, use:
 
 ```powershell
-python scripts/phase3_retrieval/retrieve_topk.py `
+python scripts/phase5_retrieval/retrieve_topk.py `
   --db-path data/features/cbir_features.sqlite `
   --processed-root data/processed `
   --experiment-name handcrafted_only `
@@ -333,7 +333,7 @@ Goal:
 ### Step 6.1 - Run the Registered Experiments
 
 ```powershell
-python scripts/phase3_retrieval/run_experiments.py `
+python scripts/phase6_experiments/run_experiments.py `
   --db-path data/features/cbir_features.sqlite `
   --processed-root data/processed `
   --query-count 50 `
@@ -349,7 +349,7 @@ Expected outputs:
 ### Step 6.2 - Export Manual Relevance Template
 
 ```powershell
-python scripts/phase3_retrieval/prepare_manual_relevance.py `
+python scripts/phase6_experiments/prepare_manual_relevance.py `
   --db-path data/features/cbir_features.sqlite `
   --top-k 5 `
   --output-csv outputs/manual_relevance/manual_relevance_template.csv
@@ -363,7 +363,7 @@ Open the exported CSV and fill:
 ### Step 6.3 - Import Manual Relevance Judgments
 
 ```powershell
-python scripts/phase3_retrieval/import_relevance_judgments.py `
+python scripts/phase6_experiments/import_relevance_judgments.py `
   --db-path data/features/cbir_features.sqlite `
   --judgments-csv outputs/manual_relevance/manual_relevance_template.csv
 ```
@@ -382,7 +382,7 @@ Metrics:
 Run evaluation:
 
 ```powershell
-python scripts/phase3_retrieval/evaluate_retrieval.py `
+python scripts/phase7_evaluation/evaluate_retrieval.py `
   --db-path data/features/cbir_features.sqlite `
   --judgment-source both `
   --k 5 `
@@ -402,7 +402,7 @@ The script also writes summary metrics back into the `experiments` table.
 Export report-ready artifacts:
 
 ```powershell
-python scripts/phase3_retrieval/export_report_artifacts.py `
+python scripts/phase8_report_artifacts/export_report_artifacts.py `
   --db-path data/features/cbir_features.sqlite `
   --features-dir data/features `
   --output-dir outputs/report_artifacts `

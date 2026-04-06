@@ -9,6 +9,9 @@ import numpy as np
 import torch
 from PIL import Image
 from skimage.feature import hog, local_binary_pattern
+from skimage.filters import threshold_otsu
+from skimage.measure import label, regionprops
+from skimage.morphology import binary_closing, binary_opening, disk, remove_small_holes, remove_small_objects
 from torch import nn
 from torchvision import models
 
@@ -234,6 +237,129 @@ def center_square_crop_resize(image: Image.Image, target_size: Tuple[int, int] =
     top = max(0, (rgb.height - side) // 2)
     crop = rgb.crop((left, top, left + side, top + side))
     return crop.resize(target_size, Image.Resampling.LANCZOS)
+
+
+def compute_square_crop_from_bbox(
+    bbox: Tuple[float, float, float, float],
+    image_width: int,
+    image_height: int,
+    padding_ratio: float,
+) -> Tuple[int, int, int, int]:
+    x, y, width, height = bbox
+    center_x = x + (width / 2.0)
+    center_y = y + (height / 2.0)
+    side = max(width, height) * (1.0 + (2.0 * padding_ratio))
+    side = max(1.0, min(side, float(min(image_width, image_height))))
+
+    left = center_x - (side / 2.0)
+    top = center_y - (side / 2.0)
+    left = max(0.0, min(left, float(image_width) - side))
+    top = max(0.0, min(top, float(image_height) - side))
+
+    right = left + side
+    bottom = top + side
+
+    left_i = int(round(left))
+    top_i = int(round(top))
+    right_i = max(left_i + 1, min(int(round(right)), image_width))
+    bottom_i = max(top_i + 1, min(int(round(bottom)), image_height))
+    return left_i, top_i, right_i, bottom_i
+
+
+def _estimate_foreground_bbox(image: Image.Image) -> Tuple[float, float, float, float] | None:
+    rgb = image.convert("RGB")
+    array = np.asarray(rgb, dtype=np.float32) / 255.0
+    height, width = array.shape[:2]
+    if min(height, width) < 32:
+        return None
+
+    border = max(8, int(round(min(height, width) * 0.08)))
+    border_pixels = np.concatenate(
+        [
+            array[:border, :, :].reshape(-1, 3),
+            array[-border:, :, :].reshape(-1, 3),
+            array[:, :border, :].reshape(-1, 3),
+            array[:, -border:, :].reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    background_color = np.median(border_pixels, axis=0)
+    color_distance = np.linalg.norm(array - background_color, axis=2)
+
+    hsv = np.asarray(rgb.convert("HSV"), dtype=np.float32) / 255.0
+    saturation = hsv[:, :, 1]
+    score_map = (0.8 * color_distance) + (0.2 * saturation)
+
+    try:
+        threshold = float(threshold_otsu(score_map))
+    except ValueError:
+        return None
+
+    threshold = max(threshold, float(np.percentile(score_map, 70)))
+    mask = score_map >= threshold
+    radius = max(1, min(height, width) // 80)
+    mask = binary_opening(mask, disk(radius))
+    mask = binary_closing(mask, disk(radius))
+    mask = remove_small_objects(mask, min_size=max(64, int(height * width * 0.01)))
+    mask = remove_small_holes(mask, area_threshold=max(64, int(height * width * 0.01)))
+
+    labeled = label(mask)
+    if labeled.max() == 0:
+        return None
+
+    image_center_x = width / 2.0
+    image_center_y = height / 2.0
+    best_region = None
+    best_score = -1.0
+    for region in regionprops(labeled):
+        min_row, min_col, max_row, max_col = region.bbox
+        bbox_width = max_col - min_col
+        bbox_height = max_row - min_row
+        area = float(region.area)
+        if bbox_width < width * 0.1 or bbox_height < height * 0.1:
+            continue
+        centroid_y, centroid_x = region.centroid
+        normalized_center_distance = (
+            ((centroid_x - image_center_x) / max(image_center_x, 1.0)) ** 2
+            + ((centroid_y - image_center_y) / max(image_center_y, 1.0)) ** 2
+        )
+        region_score = area / (1.0 + normalized_center_distance)
+        if region_score > best_score:
+            best_score = region_score
+            best_region = region
+
+    if best_region is None:
+        return None
+
+    min_row, min_col, max_row, max_col = best_region.bbox
+    bbox_width = max_col - min_col
+    bbox_height = max_row - min_row
+    return float(min_col), float(min_row), float(bbox_width), float(bbox_height)
+
+
+def normalize_external_query_image(
+    image: Image.Image,
+    padding_ratio: float = 0.35,
+    target_size: Tuple[int, int] = (224, 224),
+) -> Tuple[Image.Image, dict]:
+    rgb = image.convert("RGB")
+    estimated_bbox = _estimate_foreground_bbox(rgb)
+    if estimated_bbox is None:
+        normalized = center_square_crop_resize(rgb, target_size=target_size)
+        return normalized, {
+            "method": "center_square_crop_resize_fallback",
+            "target_size": list(target_size),
+        }
+
+    crop_box = compute_square_crop_from_bbox(estimated_bbox, rgb.width, rgb.height, padding_ratio)
+    normalized = rgb.crop(crop_box).resize(target_size, Image.Resampling.LANCZOS)
+    return normalized, {
+        "method": "estimated_bbox_square_crop_then_resize",
+        "padding_ratio": float(padding_ratio),
+        "target_size": list(target_size),
+        "crop_box": list(crop_box),
+        "estimated_bbox": [float(value) for value in estimated_bbox],
+    }
 
 
 def preprocess_for_cnn(image: Image.Image, target_size: int = 224) -> torch.Tensor:

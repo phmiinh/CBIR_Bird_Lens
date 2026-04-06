@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -9,6 +10,10 @@ from typing import Dict, List
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+
+SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
+if str(SHARED_DIR) not in sys.path:
+    sys.path.append(str(SHARED_DIR))
 
 from feature_utils import (
     FEATURE_FILE_MAP,

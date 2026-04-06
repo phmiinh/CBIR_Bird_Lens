@@ -213,8 +213,8 @@ Minimum experiment set:
 - `README.md`
   Reframe the repo as a Multimedia Database CBIR project, explicitly not a classification project.
 
-- `pipeline.md`
-  Rewrite around: setup, normalization, handcrafted features, DB ingestion, DB-backed retrieval, evaluation, optional demo.
+- `roadmap.md`
+  Maintain the executable command flow: setup, normalization, handcrafted features, DB ingestion, DB-backed retrieval, experiments, evaluation, and report artifacts.
 
 - `setup.md`
   Keep only environment, dependency, and dataset acquisition instructions.

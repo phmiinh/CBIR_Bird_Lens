@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
+if str(SHARED_DIR) not in sys.path:
+    sys.path.append(str(SHARED_DIR))
 
 from db_utils import connect_db
 from feature_utils import build_descriptor_table_rows, load_json, write_csv_rows

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
+if str(SHARED_DIR) not in sys.path:
+    sys.path.append(str(SHARED_DIR))
 
 from feature_utils import load_json
 
@@ -22,7 +27,7 @@ def main() -> int:
     summary_path = Path(parse_args().output_json).resolve()
     if not summary_path.exists():
         raise FileNotFoundError(
-            f"{summary_path} was not found. Run scripts/phase3_retrieval/evaluate_retrieval.py first."
+            f"{summary_path} was not found. Run scripts/phase7_evaluation/evaluate_retrieval.py first."
         )
     payload = load_json(summary_path)
     print("Deprecated entrypoint. Read the DB-first summary JSON below:")

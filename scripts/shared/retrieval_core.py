@@ -22,12 +22,12 @@ from db_utils import (
 from feature_utils import (
     FEATURE_SPECS,
     REGIONAL_GRID,
-    center_square_crop_resize,
     chi_square_similarity_scores,
     cosine_similarity_scores,
     euclidean_similarity_scores,
     extract_all_features,
     load_cnn_model,
+    normalize_external_query_image,
     select_device,
 )
 
@@ -96,25 +96,31 @@ class RetrievalEngine:
             for feature_name in required_features
         }
 
-    def _prepare_external_query_features(self, image_path: Path, required_features: List[str]) -> Dict[str, np.ndarray]:
+    def _prepare_external_query_features(
+        self,
+        image_path: Path,
+        required_features: List[str],
+    ) -> tuple[Dict[str, np.ndarray], dict]:
         if not image_path.exists():
             raise FileNotFoundError(f"Query image not found: {image_path}")
 
         use_cnn = "cnn_embedding" in required_features
         with Image.open(image_path) as image:
-            normalized = center_square_crop_resize(image)
-            return extract_all_features(
+            normalized, preprocess_params = normalize_external_query_image(image)
+            features = extract_all_features(
                 image=normalized,
                 bins=(8, 8, 8),
                 regional_grid=REGIONAL_GRID,
                 cnn_model=self._ensure_cnn_model() if use_cnn else None,
                 device=self.device if use_cnn else None,
             )
+            return features, preprocess_params
 
     def _build_query_record(
         self,
         query_image_id: int | None,
         query_image_path: str | None,
+        preprocess_params_override: dict | None = None,
     ) -> tuple[int, str, str, dict]:
         if query_image_id is not None:
             gallery_row = self.gallery_by_image_id[int(query_image_id)]
@@ -137,8 +143,8 @@ class RetrievalEngine:
             return query_id, "gallery_image", relative_path, preprocess_params
 
         absolute_path = str(Path(query_image_path or "").resolve())
-        preprocess_params = {
-            "method": "center_square_crop_resize",
+        preprocess_params = preprocess_params_override or {
+            "method": "center_square_crop_resize_fallback",
             "target_size": [224, 224],
         }
         query_id = get_or_create_query(
@@ -165,8 +171,12 @@ class RetrievalEngine:
 
         if query_image_id is not None:
             query_vectors = self._load_gallery_query_features(query_image_id, required_features)
+            external_preprocess_params = None
         else:
-            query_vectors = self._prepare_external_query_features(Path(str(query_image_path)), required_features)
+            query_vectors, external_preprocess_params = self._prepare_external_query_features(
+                Path(str(query_image_path)),
+                required_features,
+            )
 
         per_feature_scores: Dict[str, np.ndarray] = {}
         fused_scores = np.zeros((len(self.gallery_rows),), dtype=np.float32)
@@ -202,7 +212,11 @@ class RetrievalEngine:
         query_id = None
         run_id = None
         if persist:
-            query_id, _, _, _ = self._build_query_record(query_image_id, query_image_path)
+            query_id, _, _, _ = self._build_query_record(
+                query_image_id,
+                query_image_path,
+                preprocess_params_override=external_preprocess_params,
+            )
             upsert_query_features(self.connection, query_id, self.feature_type_map, query_vectors)
             run_id = create_retrieval_run(
                 self.connection,

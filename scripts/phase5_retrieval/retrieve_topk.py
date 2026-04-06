@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
+if str(SHARED_DIR) not in sys.path:
+    sys.path.append(str(SHARED_DIR))
 
 from feature_utils import save_json, write_csv_rows
 from retrieval_core import RetrievalEngine

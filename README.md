@@ -55,8 +55,8 @@ The project was deliberately refocused away from a deep-learning-first narrative
 - [setup.md](/d:/PTIT/Multimedia%20Database/setup.md)
   Environment setup, dependencies, Kaggle access, and CUB download.
 
-- [pipeline.md](/d:/PTIT/Multimedia%20Database/pipeline.md)
-  Execution guide for the working pipeline: normalization, feature extraction, database build, retrieval, evaluation, and optional demo UI.
+- [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md)
+  Execution guide for the working pipeline: normalization, descriptor extraction, database build, retrieval, experiments, evaluation, and report artifacts.
 
 - [plan.md](/d:/PTIT/Multimedia%20Database/plan.md)
   Master refactor roadmap and architecture decisions for the DB-first version of the project.
@@ -69,8 +69,26 @@ The project was deliberately refocused away from a deep-learning-first narrative
 - [scripts/phase2_normalize](/d:/PTIT/Multimedia%20Database/scripts/phase2_normalize)
   Review-board generation, manual filtering, ROI crop, resize, and metadata export.
 
-- [scripts/phase3_retrieval](/d:/PTIT/Multimedia%20Database/scripts/phase3_retrieval)
-  Descriptor extraction, SQLite ingestion, DB-backed retrieval, experiments, relevance labeling, evaluation, and report artifact export.
+- [scripts/phase3_descriptor_extraction](/d:/PTIT/Multimedia%20Database/scripts/phase3_descriptor_extraction)
+  Descriptor extraction and cleanup before rebuilding downstream phases.
+
+- [scripts/phase4_feature_database](/d:/PTIT/Multimedia%20Database/scripts/phase4_feature_database)
+  SQLite schema creation and feature ingestion.
+
+- [scripts/phase5_retrieval](/d:/PTIT/Multimedia%20Database/scripts/phase5_retrieval)
+  Local demo UI and optional CLI retrieval entrypoints.
+
+- [scripts/phase6_experiments](/d:/PTIT/Multimedia%20Database/scripts/phase6_experiments)
+  Query subset generation, experiment execution, and manual relevance preparation/import.
+
+- [scripts/phase7_evaluation](/d:/PTIT/Multimedia%20Database/scripts/phase7_evaluation)
+  Metric computation and evaluation reports.
+
+- [scripts/phase8_report_artifacts](/d:/PTIT/Multimedia%20Database/scripts/phase8_report_artifacts)
+  Report-ready exports.
+
+- [scripts/shared](/d:/PTIT/Multimedia%20Database/scripts/shared)
+  Shared utilities for descriptors, SQLite access, and retrieval logic.
 
 - [data/processed](/d:/PTIT/Multimedia%20Database/data/processed)
   Curated normalized gallery images and metadata.
@@ -80,4 +98,4 @@ The project was deliberately refocused away from a deep-learning-first narrative
 
 ## Current Working Target
 
-The refactor is designed for a curated gallery of **1000 normalized images**. If the local workspace still contains only `500` processed images, rerun the Phase 2 review and normalization flow in [pipeline.md](/d:/PTIT/Multimedia%20Database/pipeline.md) to scale the gallery before running the full experiments.
+The refactor is designed for a curated gallery of **1000 normalized images**. If the local workspace still contains only `500` processed images, rerun the Phase 2 review and normalization flow in [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md) to scale the gallery before running the full experiments.

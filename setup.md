@@ -6,7 +6,7 @@ This file covers only:
 - Kaggle API access
 - CUB-200-2011 download
 
-For the working execution flow, continue with [pipeline.md](/d:/PTIT/Multimedia%20Database/pipeline.md).
+For the working execution flow, continue with [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md).
 
 ## 1. Create and Activate the Virtual Environment
 
@@ -81,4 +81,4 @@ data/raw/cub2002011/
     images/
 ```
 
-Once this is ready, move to [pipeline.md](/d:/PTIT/Multimedia%20Database/pipeline.md).
+Once this is ready, move to [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md).

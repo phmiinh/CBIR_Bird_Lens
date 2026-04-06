@@ -3,8 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
+if str(SHARED_DIR) not in sys.path:
+    sys.path.append(str(SHARED_DIR))
 
 from db_utils import connect_db, update_experiment_summary
 from feature_utils import save_json, write_csv_rows
