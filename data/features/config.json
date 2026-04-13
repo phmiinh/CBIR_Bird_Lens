@@ -1,5 +1,5 @@
 {
-  "created_at_utc": "2026-04-02T08:19:14.560469+00:00",
+  "created_at_utc": "2026-04-13T15:41:25.005158+00:00",
   "dataset_version": "normalized_gallery_1000",
   "metadata_csv": "D:\\PTIT\\Multimedia Database\\data\\processed\\metadata\\images.csv",
   "processed_root": "D:\\PTIT\\Multimedia Database\\data\\processed",
@@ -7,6 +7,11 @@
   "cnn_backbone": "resnet18",
   "device_used": "cpu",
   "include_cnn": true,
+  "foreground_focus": true,
+  "foreground_mask_stats": {
+    "estimated_foreground_mask": 998,
+    "bbox_rect_fallback": 2
+  },
   "hsv_bins": [
     8,
     8,

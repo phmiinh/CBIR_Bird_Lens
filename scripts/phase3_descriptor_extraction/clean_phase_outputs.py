@@ -18,12 +18,12 @@ PHASE3_TARGETS = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Remove old Phase 3 artifacts before rebuilding features, DB, retrieval logs, and evaluation outputs."
+        description="Remove old Phase 3+ downstream artifacts before rebuilding features, DB, retrieval logs, and evaluation outputs."
     )
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Actually delete the Phase 3 artifact paths. Without this flag, the script only prints the cleanup plan.",
+        help="Actually delete the Phase 3+ downstream artifact paths. Without this flag, the script only prints the cleanup plan.",
     )
     return parser.parse_args()
 
@@ -33,7 +33,7 @@ def main() -> int:
     root = Path.cwd().resolve()
     targets = [(root / relative_path).resolve() for relative_path in PHASE3_TARGETS]
 
-    print("Phase 3 cleanup targets:")
+    print("Phase 3+ downstream cleanup targets:")
     for target in targets:
         exists = "exists" if target.exists() else "missing"
         print(f"- {target} [{exists}]")
@@ -45,7 +45,7 @@ def main() -> int:
     print(f"- {(root / 'outputs/review_batch_2').resolve()}")
 
     if not args.yes:
-        print("Dry run only. Re-run with --yes to delete the old Phase 3 artifacts.")
+        print("Dry run only. Re-run with --yes to delete the old Phase 3+ downstream artifacts.")
         return 0
 
     for target in targets:
@@ -57,7 +57,7 @@ def main() -> int:
             target.unlink()
 
     (root / "data/features").mkdir(parents=True, exist_ok=True)
-    print("Old Phase 3 artifacts deleted. data/features has been recreated as an empty directory.")
+    print("Old Phase 3+ downstream artifacts deleted. data/features has been recreated as an empty directory.")
     return 0
 
 

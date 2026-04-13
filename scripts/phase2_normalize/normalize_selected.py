@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 from pathlib import Path
 from typing import List
 
@@ -62,6 +63,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="Number of intermediate examples to save for the report.",
+    )
+    parser.add_argument(
+        "--clean-output",
+        action="store_true",
+        help="Delete old processed images, metadata, and intermediate examples before rebuilding.",
     )
     return parser.parse_args()
 
@@ -143,6 +149,11 @@ def main() -> int:
     images_output_dir = output_dir / "images"
     metadata_output_dir = output_dir / "metadata"
     examples_output_dir = Path("outputs/intermediate_examples").resolve()
+
+    if args.clean_output:
+        for target in (images_output_dir, metadata_output_dir, examples_output_dir):
+            if target.exists():
+                shutil.rmtree(target)
 
     images_output_dir.mkdir(parents=True, exist_ok=True)
     metadata_output_dir.mkdir(parents=True, exist_ok=True)

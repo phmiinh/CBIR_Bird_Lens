@@ -129,8 +129,10 @@ CREATE INDEX IF NOT EXISTS idx_image_features_feature_type_id ON image_features(
 CREATE INDEX IF NOT EXISTS idx_query_features_feature_type_id ON query_features(feature_type_id);
 CREATE INDEX IF NOT EXISTS idx_retrieval_runs_query_id ON retrieval_runs(query_id);
 CREATE INDEX IF NOT EXISTS idx_retrieval_runs_experiment_id ON retrieval_runs(experiment_id);
+CREATE INDEX IF NOT EXISTS idx_retrieval_runs_latest ON retrieval_runs(query_id, experiment_id, run_id DESC);
 CREATE INDEX IF NOT EXISTS idx_retrieval_results_image_id ON retrieval_results(image_id);
 CREATE INDEX IF NOT EXISTS idx_relevance_judgments_source ON relevance_judgments(judgment_source);
+CREATE INDEX IF NOT EXISTS idx_relevance_judgments_source_query ON relevance_judgments(judgment_source, query_id, image_id);
 """
 
 

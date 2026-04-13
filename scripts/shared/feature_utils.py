@@ -11,7 +11,14 @@ from PIL import Image
 from skimage.feature import hog, local_binary_pattern
 from skimage.filters import threshold_otsu
 from skimage.measure import label, regionprops
-from skimage.morphology import binary_closing, binary_opening, disk, remove_small_holes, remove_small_objects
+from skimage.morphology import (
+    binary_closing,
+    binary_dilation,
+    binary_opening,
+    disk,
+    remove_small_holes,
+    remove_small_objects,
+)
 from torch import nn
 from torchvision import models
 
@@ -362,6 +369,129 @@ def normalize_external_query_image(
     }
 
 
+def _sanitize_bbox_pixels(
+    bbox: Tuple[float, float, float, float],
+    image_size: Tuple[int, int],
+) -> Tuple[int, int, int, int] | None:
+    image_width, image_height = image_size
+    x, y, width, height = bbox
+    left = max(0, int(round(x)))
+    top = max(0, int(round(y)))
+    right = min(image_width, int(round(x + width)))
+    bottom = min(image_height, int(round(y + height)))
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right, bottom
+
+
+def project_bbox_to_normalized_mask(
+    image_size: Tuple[int, int],
+    bbox: Tuple[float, float, float, float],
+    crop_box: Tuple[int, int, int, int],
+) -> np.ndarray | None:
+    image_width, image_height = image_size
+    crop_left, crop_top, crop_right, crop_bottom = crop_box
+    crop_width = max(1, int(crop_right - crop_left))
+    crop_height = max(1, int(crop_bottom - crop_top))
+    bbox_x, bbox_y, bbox_w, bbox_h = bbox
+
+    normalized_bbox = (
+        ((bbox_x - crop_left) * image_width) / crop_width,
+        ((bbox_y - crop_top) * image_height) / crop_height,
+        (bbox_w * image_width) / crop_width,
+        (bbox_h * image_height) / crop_height,
+    )
+    pixel_bbox = _sanitize_bbox_pixels(normalized_bbox, image_size)
+    if pixel_bbox is None:
+        return None
+
+    left, top, right, bottom = pixel_bbox
+    mask = np.zeros((image_height, image_width), dtype=bool)
+    mask[top:bottom, left:right] = True
+    return mask
+
+
+def estimate_foreground_mask(
+    image: Image.Image,
+    bbox_mask: np.ndarray | None = None,
+) -> tuple[np.ndarray, str]:
+    rgb = image.convert("RGB")
+    array = np.asarray(rgb, dtype=np.float32) / 255.0
+    height, width = array.shape[:2]
+
+    hsv = np.asarray(rgb.convert("HSV"), dtype=np.float32) / 255.0
+    border = max(6, int(round(min(height, width) * 0.06)))
+    border_pixels = np.concatenate(
+        [
+            array[:border, :, :].reshape(-1, 3),
+            array[-border:, :, :].reshape(-1, 3),
+            array[:, :border, :].reshape(-1, 3),
+            array[:, -border:, :].reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    background_color = np.median(border_pixels, axis=0)
+    color_distance = np.linalg.norm(array - background_color, axis=2)
+    saturation = hsv[:, :, 1]
+    score_map = (0.8 * color_distance) + (0.2 * saturation)
+
+    try:
+        threshold = float(threshold_otsu(score_map))
+    except ValueError:
+        threshold = float(np.percentile(score_map, 70))
+    threshold = max(threshold, float(np.percentile(score_map, 70)))
+
+    mask = score_map >= threshold
+    radius = max(1, min(height, width) // 96)
+    mask = binary_opening(mask, disk(radius))
+    mask = binary_closing(mask, disk(radius))
+    mask = remove_small_objects(mask, min_size=max(48, int(height * width * 0.005)))
+    mask = remove_small_holes(mask, area_threshold=max(48, int(height * width * 0.005)))
+
+    if bbox_mask is not None and np.any(bbox_mask):
+        expanded_bbox_mask = binary_dilation(bbox_mask.astype(bool), disk(max(1, radius * 2)))
+        constrained_mask = mask & expanded_bbox_mask
+        if np.any(constrained_mask):
+            mask = constrained_mask
+        else:
+            return bbox_mask.astype(bool), "bbox_rect_fallback"
+
+    if np.any(mask):
+        return mask.astype(bool), "estimated_foreground_mask"
+    if bbox_mask is not None and np.any(bbox_mask):
+        return bbox_mask.astype(bool), "bbox_rect_fallback"
+
+    return np.ones((height, width), dtype=bool), "full_image_fallback"
+
+
+def build_gallery_foreground_mask(image: Image.Image, row: dict) -> tuple[np.ndarray, str]:
+    bbox = (
+        float(row.get("bbox_x", 0.0)),
+        float(row.get("bbox_y", 0.0)),
+        float(row.get("bbox_w", 0.0)),
+        float(row.get("bbox_h", 0.0)),
+    )
+    crop_box = (
+        int(float(row.get("crop_left", 0))),
+        int(float(row.get("crop_top", 0))),
+        int(float(row.get("crop_right", image.width))),
+        int(float(row.get("crop_bottom", image.height))),
+    )
+    bbox_mask = project_bbox_to_normalized_mask((image.width, image.height), bbox, crop_box)
+    return estimate_foreground_mask(image, bbox_mask=bbox_mask)
+
+
+def build_query_foreground_mask(image: Image.Image, preprocess_params: dict) -> tuple[np.ndarray, str]:
+    bbox_payload = preprocess_params.get("estimated_bbox") or preprocess_params.get("bbox")
+    crop_payload = preprocess_params.get("crop_box")
+    bbox_mask = None
+    if bbox_payload and crop_payload and len(bbox_payload) == 4 and len(crop_payload) == 4:
+        bbox = tuple(float(value) for value in bbox_payload)
+        crop_box = tuple(int(round(float(value))) for value in crop_payload)
+        bbox_mask = project_bbox_to_normalized_mask((image.width, image.height), bbox, crop_box)
+    return estimate_foreground_mask(image, bbox_mask=bbox_mask)
+
+
 def preprocess_for_cnn(image: Image.Image, target_size: int = 224) -> torch.Tensor:
     rgb = center_square_crop_resize(image, target_size=(target_size, target_size))
     array = np.asarray(rgb, dtype=np.float32) / 255.0
@@ -379,9 +509,28 @@ def extract_cnn_embedding(model: nn.Module, image: Image.Image, device: torch.de
     return vector
 
 
-def _compute_hsv_histogram(hsv_image: np.ndarray, bins: Tuple[int, int, int]) -> np.ndarray:
+def _compute_hsv_histogram(
+    hsv_image: np.ndarray,
+    bins: Tuple[int, int, int],
+    foreground_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    if foreground_mask is not None and np.any(foreground_mask):
+        pixels = hsv_image[foreground_mask]
+        if pixels.size > 0:
+            h_channel = pixels[:, 0]
+            s_channel = pixels[:, 1]
+            v_channel = pixels[:, 2]
+        else:
+            h_channel = hsv_image[:, :, 0].ravel()
+            s_channel = hsv_image[:, :, 1].ravel()
+            v_channel = hsv_image[:, :, 2].ravel()
+    else:
+        h_channel = hsv_image[:, :, 0].ravel()
+        s_channel = hsv_image[:, :, 1].ravel()
+        v_channel = hsv_image[:, :, 2].ravel()
+
     hist, _ = np.histogramdd(
-        sample=(hsv_image[:, :, 0].ravel(), hsv_image[:, :, 1].ravel(), hsv_image[:, :, 2].ravel()),
+        sample=(h_channel, s_channel, v_channel),
         bins=bins,
         range=((0, 256), (0, 256), (0, 256)),
     )
@@ -392,15 +541,33 @@ def _compute_hsv_histogram(hsv_image: np.ndarray, bins: Tuple[int, int, int]) ->
     return vector
 
 
-def extract_global_hsv_histogram(image: Image.Image, bins: Tuple[int, int, int]) -> np.ndarray:
+def extract_global_hsv_histogram(
+    image: Image.Image,
+    bins: Tuple[int, int, int],
+    foreground_mask: np.ndarray | None = None,
+) -> np.ndarray:
     hsv = np.asarray(image.convert("HSV"), dtype=np.uint8)
-    return _compute_hsv_histogram(hsv, bins=bins)
+    return _compute_hsv_histogram(hsv, bins=bins, foreground_mask=foreground_mask)
+
+
+def extract_cumulative_hsv_histogram(
+    image: Image.Image,
+    bins: Tuple[int, int, int],
+    foreground_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    histogram = extract_global_hsv_histogram(image, bins=bins, foreground_mask=foreground_mask)
+    cumulative = np.cumsum(histogram, dtype=np.float32)
+    denominator = float(cumulative[-1]) if cumulative.size > 0 else 0.0
+    if denominator > 0.0:
+        cumulative /= denominator
+    return cumulative.astype(np.float32)
 
 
 def extract_regional_hsv_histogram(
     image: Image.Image,
     bins: Tuple[int, int, int],
     grid: Tuple[int, int] = REGIONAL_GRID,
+    foreground_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     hsv = np.asarray(image.convert("HSV"), dtype=np.uint8)
     rows, cols = grid
@@ -412,7 +579,10 @@ def extract_regional_hsv_histogram(
             x0 = (col_index * hsv.shape[1]) // cols
             x1 = ((col_index + 1) * hsv.shape[1]) // cols
             cell = hsv[y0:y1, x0:x1]
-            cell_vectors.append(_compute_hsv_histogram(cell, bins=bins))
+            cell_mask = None
+            if foreground_mask is not None:
+                cell_mask = foreground_mask[y0:y1, x0:x1]
+            cell_vectors.append(_compute_hsv_histogram(cell, bins=bins, foreground_mask=cell_mask))
 
     vector = np.concatenate(cell_vectors).astype(np.float32)
     denominator = float(vector.sum())
@@ -421,14 +591,17 @@ def extract_regional_hsv_histogram(
     return vector
 
 
-def extract_color_moments(image: Image.Image) -> np.ndarray:
+def extract_color_moments(image: Image.Image, foreground_mask: np.ndarray | None = None) -> np.ndarray:
     hsv = np.asarray(image.convert("HSV"), dtype=np.float32) / 255.0
     moments = []
     for channel_index in range(3):
         channel = hsv[:, :, channel_index]
-        mean = float(np.mean(channel))
-        std = float(np.std(channel))
-        centered = channel - mean
+        values = channel[foreground_mask] if foreground_mask is not None and np.any(foreground_mask) else channel.ravel()
+        if values.size == 0:
+            values = channel.ravel()
+        mean = float(np.mean(values))
+        std = float(np.std(values))
+        centered = values - mean
         third_moment = float(np.mean(centered ** 3))
         skewness = np.sign(third_moment) * (abs(third_moment) ** (1.0 / 3.0))
         moments.extend([mean, std, skewness])
@@ -439,11 +612,15 @@ def extract_lbp_histogram(
     image: Image.Image,
     points: int = LBP_POINTS,
     radius: int = LBP_RADIUS,
+    foreground_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     gray = np.asarray(image.convert("L"), dtype=np.uint8)
     lbp = local_binary_pattern(gray, P=points, R=radius, method="uniform")
     bins = np.arange(0, points + 3, dtype=np.float32)
-    hist, _ = np.histogram(lbp.ravel(), bins=bins, range=(0, points + 2))
+    values = lbp[foreground_mask] if foreground_mask is not None and np.any(foreground_mask) else lbp.ravel()
+    if values.size == 0:
+        values = lbp.ravel()
+    hist, _ = np.histogram(values, bins=bins, range=(0, points + 2))
     vector = hist.astype(np.float32)
     denominator = float(vector.sum())
     if denominator > 0.0:
@@ -451,8 +628,14 @@ def extract_lbp_histogram(
     return vector
 
 
-def extract_hog_descriptor(image: Image.Image) -> np.ndarray:
+def extract_hog_descriptor(
+    image: Image.Image,
+    foreground_mask: np.ndarray | None = None,
+    mask_method: str = "full_image_fallback",
+) -> np.ndarray:
     gray = np.asarray(image.convert("L"), dtype=np.float32) / 255.0
+    if foreground_mask is not None and np.any(foreground_mask) and mask_method == "estimated_foreground_mask":
+        gray = gray * foreground_mask.astype(np.float32)
     vector = hog(
         gray,
         orientations=HOG_ORIENTATIONS,
@@ -470,14 +653,21 @@ def extract_all_features(
     regional_grid: Tuple[int, int],
     cnn_model: nn.Module | None,
     device: torch.device | None,
+    foreground_mask: np.ndarray | None = None,
+    mask_method: str = "full_image_fallback",
 ) -> Dict[str, np.ndarray]:
     rgb = image.convert("RGB")
     features = {
-        "global_hsv_hist": extract_global_hsv_histogram(rgb, bins=bins),
-        "regional_hsv_hist": extract_regional_hsv_histogram(rgb, bins=bins, grid=regional_grid),
-        "color_moments": extract_color_moments(rgb),
-        "lbp_hist": extract_lbp_histogram(rgb),
-        "hog_descriptor": extract_hog_descriptor(rgb),
+        "global_hsv_hist": extract_global_hsv_histogram(rgb, bins=bins, foreground_mask=foreground_mask),
+        "regional_hsv_hist": extract_regional_hsv_histogram(
+            rgb,
+            bins=bins,
+            grid=regional_grid,
+            foreground_mask=foreground_mask,
+        ),
+        "color_moments": extract_color_moments(rgb, foreground_mask=foreground_mask),
+        "lbp_hist": extract_lbp_histogram(rgb, foreground_mask=foreground_mask),
+        "hog_descriptor": extract_hog_descriptor(rgb, foreground_mask=foreground_mask, mask_method=mask_method),
     }
     if cnn_model is not None and device is not None:
         features["cnn_embedding"] = extract_cnn_embedding(cnn_model, rgb, device)

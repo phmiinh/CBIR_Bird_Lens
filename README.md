@@ -8,14 +8,14 @@ The current repository is organized around a **DB-first retrieval pipeline**:
 
 1. Curate and normalize a gallery of bird images from CUB-200-2011.
 2. Extract an explainable feature set:
-   - global HSV histogram
-   - regional HSV histogram (`2x2`)
-   - color moments
-   - LBP histogram
-   - HOG descriptor
+   - foreground-aware global HSV histogram
+   - foreground-aware regional HSV histogram (`2x2`)
+   - foreground-aware color moments
+   - foreground-aware LBP histogram
+   - foreground-aware HOG descriptor
    - CNN embedding (`ResNet18`, secondary only)
 3. Store metadata, preprocessing trace, descriptors, query cache, retrieval logs, judgments, and experiment summaries in **SQLite**.
-4. Run DB-backed `top-k` retrieval under multiple experiment configurations.
+4. Run `top-k` retrieval under multiple experiment configurations using descriptor matrices loaded from SQLite.
    - current baseline search strategy: exhaustive `kNN` / linear scan over the gallery
    - storage architecture: **loose coupling** (`images on filesystem`, `metadata + descriptors in SQLite`)
    - query semantics: **approximate similarity ranking** over descriptors, not exact attribute matching and not species classification
@@ -29,7 +29,7 @@ The repository follows a **loose-coupling multimedia DBMS architecture**:
 
 - bird image files remain on the filesystem
 - SQLite stores metadata, descriptor definitions, feature vectors, query cache, retrieval logs, judgments, and experiment summaries
-- the retrieval engine performs **approximate content similarity ranking**
+- the retrieval engine loads descriptor matrices from SQLite, then performs an **exhaustive approximate similarity scan** in application code
 
 At the project scale of `1000` images, the baseline retrieval method is an **exhaustive linear scan** over the gallery descriptors. This is intentional: it keeps the system transparent, reproducible, and easy to explain in a course project. Advanced indexing is treated as future work, not as a requirement for validating the CBIR pipeline.
 
@@ -99,3 +99,7 @@ The project was deliberately refocused away from a deep-learning-first narrative
 ## Current Working Target
 
 The refactor is designed for a curated gallery of **1000 normalized images**. If the local workspace still contains only `500` processed images, rerun the Phase 2 review and normalization flow in [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md) to scale the gallery before running the full experiments.
+
+Metadata note:
+- `images.width` and `images.height` refer to the original source image dimensions
+- normalized gallery size is stored separately as `target_width` and `target_height` in `preprocessing_metadata`

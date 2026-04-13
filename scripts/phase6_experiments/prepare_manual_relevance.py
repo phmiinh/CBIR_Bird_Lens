@@ -34,36 +34,81 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_latest_runs(connection, experiments: list[str]) -> list[dict]:
+    placeholders = ",".join("?" for _ in experiments)
+    rows = connection.execute(
+        f"""
+        SELECT
+            runs.run_id,
+            runs.query_id,
+            runs.experiment_id,
+            exp.name AS experiment_name
+        FROM retrieval_runs AS runs
+        JOIN experiments AS exp ON exp.experiment_id = runs.experiment_id
+        WHERE exp.name IN ({placeholders})
+        ORDER BY runs.query_id, runs.experiment_id, runs.run_id DESC
+        """,
+        experiments,
+    ).fetchall()
+
+    latest = {}
+    for row in rows:
+        key = (int(row["query_id"]), int(row["experiment_id"]))
+        if key not in latest:
+            latest[key] = {
+                "run_id": int(row["run_id"]),
+                "query_id": int(row["query_id"]),
+                "experiment_name": str(row["experiment_name"]),
+            }
+    return list(latest.values())
+
+
 def main() -> int:
     args = parse_args()
     connection = connect_db(Path(args.db_path).resolve())
     try:
-        placeholders = ",".join("?" for _ in args.experiments)
-        rows = connection.execute(
-            f"""
-            SELECT
-                rr.run_id,
-                rr.rank,
-                rr.image_id AS candidate_image_id,
-                exp.name AS experiment_name,
-                q.query_id,
-                q.query_image_path,
-                qi.image_id AS query_image_id,
-                qi.species_name AS query_species_name,
-                qi.processed_relative_path AS query_processed_relative_path,
-                gi.species_name AS candidate_species_name,
-                gi.processed_relative_path AS candidate_processed_relative_path
-            FROM retrieval_runs AS runs
-            JOIN experiments AS exp ON exp.experiment_id = runs.experiment_id
-            JOIN queries AS q ON q.query_id = runs.query_id
-            JOIN retrieval_results AS rr ON rr.run_id = runs.run_id
-            LEFT JOIN images AS qi ON qi.processed_relative_path = q.query_image_path
-            JOIN images AS gi ON gi.image_id = rr.image_id
-            WHERE exp.name IN ({placeholders}) AND rr.rank <= ?
-            ORDER BY q.query_id, rr.image_id, exp.name, rr.rank
-            """,
-            [*args.experiments, int(args.top_k)],
-        ).fetchall()
+        latest_runs = load_latest_runs(connection, list(args.experiments))
+        rows = []
+        for run in latest_runs:
+            result_rows = connection.execute(
+                """
+                SELECT
+                    rr.run_id,
+                    rr.rank,
+                    rr.image_id AS candidate_image_id,
+                    q.query_id,
+                    q.query_image_path,
+                    qi.image_id AS query_image_id,
+                    qi.species_name AS query_species_name,
+                    qi.processed_relative_path AS query_processed_relative_path,
+                    gi.species_name AS candidate_species_name,
+                    gi.processed_relative_path AS candidate_processed_relative_path
+                FROM retrieval_results AS rr
+                JOIN retrieval_runs AS runs ON runs.run_id = rr.run_id
+                JOIN queries AS q ON q.query_id = runs.query_id
+                LEFT JOIN images AS qi ON qi.processed_relative_path = q.query_image_path
+                JOIN images AS gi ON gi.image_id = rr.image_id
+                WHERE rr.run_id = ? AND rr.rank <= ?
+                ORDER BY rr.rank
+                """,
+                (int(run["run_id"]), int(args.top_k)),
+            ).fetchall()
+            for row in result_rows:
+                rows.append(
+                    {
+                        "run_id": int(row["run_id"]),
+                        "rank": int(row["rank"]),
+                        "candidate_image_id": int(row["candidate_image_id"]),
+                        "experiment_name": run["experiment_name"],
+                        "query_id": int(row["query_id"]),
+                        "query_image_path": str(row["query_image_path"]),
+                        "query_image_id": row["query_image_id"],
+                        "query_species_name": row["query_species_name"],
+                        "query_processed_relative_path": row["query_processed_relative_path"],
+                        "candidate_species_name": row["candidate_species_name"],
+                        "candidate_processed_relative_path": row["candidate_processed_relative_path"],
+                    }
+                )
     finally:
         connection.close()
 

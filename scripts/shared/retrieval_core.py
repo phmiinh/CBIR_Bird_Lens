@@ -22,6 +22,7 @@ from db_utils import (
 from feature_utils import (
     FEATURE_SPECS,
     REGIONAL_GRID,
+    build_query_foreground_mask,
     chi_square_similarity_scores,
     cosine_similarity_scores,
     euclidean_similarity_scores,
@@ -107,13 +108,17 @@ class RetrievalEngine:
         use_cnn = "cnn_embedding" in required_features
         with Image.open(image_path) as image:
             normalized, preprocess_params = normalize_external_query_image(image)
+            foreground_mask, mask_method = build_query_foreground_mask(normalized, preprocess_params)
             features = extract_all_features(
                 image=normalized,
                 bins=(8, 8, 8),
                 regional_grid=REGIONAL_GRID,
                 cnn_model=self._ensure_cnn_model() if use_cnn else None,
                 device=self.device if use_cnn else None,
+                foreground_mask=foreground_mask,
+                mask_method=mask_method,
             )
+            preprocess_params["foreground_mask_method"] = mask_method
             return features, preprocess_params
 
     def _build_query_record(

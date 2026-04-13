@@ -18,6 +18,7 @@ if str(SHARED_DIR) not in sys.path:
 from feature_utils import (
     FEATURE_FILE_MAP,
     REGIONAL_GRID,
+    build_gallery_foreground_mask,
     build_descriptor_table_rows,
     extract_all_features,
     load_cnn_model,
@@ -176,16 +177,21 @@ def main() -> int:
     feature_store["cnn_embedding"] = []
 
     manifest_rows = []
+    foreground_mask_stats: Dict[str, int] = {}
     for row in tqdm(rows, desc="Extracting descriptor set"):
         image_path = resolve_processed_image_path(row, processed_root)
         with Image.open(image_path) as image:
             rgb_image = image.convert("RGB")
+            foreground_mask, mask_method = build_gallery_foreground_mask(rgb_image, row)
+            foreground_mask_stats[mask_method] = foreground_mask_stats.get(mask_method, 0) + 1
             feature_map = extract_all_features(
                 image=rgb_image,
                 bins=bins,
                 regional_grid=REGIONAL_GRID,
                 cnn_model=cnn_model,
                 device=device,
+                foreground_mask=foreground_mask,
+                mask_method=mask_method,
             )
             manifest_rows.append(_build_manifest_row(row, rgb_image))
 
@@ -262,6 +268,8 @@ def main() -> int:
         "cnn_backbone": args.cnn_backbone,
         "device_used": str(device),
         "include_cnn": True,
+        "foreground_focus": True,
+        "foreground_mask_stats": foreground_mask_stats,
         "hsv_bins": list(bins),
         "regional_grid": list(REGIONAL_GRID),
         "num_images": int(len(manifest_rows)),

@@ -150,6 +150,11 @@ DB-backed retrieval flow:
 7. Persist ranked outputs into `retrieval_results`.
 8. Persist configuration and summary metrics into `experiments`.
 
+Important implementation note:
+- SQLite is the system-of-record for metadata, descriptors, queries, judgments, and experiment logs.
+- The current retrieval engine loads descriptor matrices from SQLite and performs an exhaustive similarity scan in application code.
+- This is still DB-first and appropriate for the `1000`-image project scale; it should not be described as SQL-native vector retrieval.
+
 Operational retrieval strategy:
 
 - for the `1000`-image course-project scale, the baseline retrieval engine should use **exhaustive kNN / linear scan** over gallery descriptors loaded from SQLite

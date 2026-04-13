@@ -10,6 +10,7 @@ Architecture baseline used throughout the pipeline:
 - **loose coupling**: image files on filesystem, metadata + descriptors + logs in SQLite
 - **approximate similarity retrieval**: ranked content matching, not exact DBMS filtering
 - **exhaustive linear scan**: accepted baseline retrieval strategy for the `1000`-image course-project scale
+- **descriptor matrices loaded from SQLite**: retrieval reads descriptors from SQLite, then scores them in application code
 
 ## Phase 1 - Dataset Setup
 
@@ -77,6 +78,7 @@ python scripts/phase2_normalize/normalize_selected.py `
   --selection-csv outputs/review/reviewed_candidates.csv `
   --dataset-root data/raw/cub2002011 `
   --padding-ratio 0.35 `
+  --clean-output `
   --require-count 1000 `
   --max-images 1000
 ```
@@ -146,6 +148,7 @@ python scripts/phase2_normalize/normalize_selected.py `
   --selection-csv outputs/review/final_reviewed_candidates_1000.csv `
   --dataset-root data/raw/cub2002011 `
   --padding-ratio 0.35 `
+  --clean-output `
   --require-count 1000 `
   --max-images 1000
 ```
@@ -155,10 +158,15 @@ The final normalized gallery is written to:
 - `data/processed/metadata/images.csv`
 - `data/processed/metadata/images.jsonl`
 
+Metadata note:
+- `width` and `height` in `images.csv` are the original source-image dimensions
+- normalized gallery size is recorded separately as `target_width` and `target_height`
+
 ## Phase 3 - Descriptor Extraction
 
 Goal:
 - extract the full feature inventory required by the DB-first retrieval system
+- suppress background influence for handcrafted descriptors by focusing extraction on the bird foreground
 
 Descriptor set:
 - global HSV histogram
@@ -167,6 +175,12 @@ Descriptor set:
 - LBP histogram
 - HOG descriptor
 - CNN embedding (`ResNet18`, secondary only)
+
+Implementation note:
+- handcrafted descriptors are extracted in a **foreground-aware** way
+- gallery images use the stored bird bbox/crop metadata to estimate a bird-focused mask
+- external queries use an estimated foreground mask after query normalization
+- after changing this logic, rebuild both `data/features` and `data/features/cbir_features.sqlite`
 
 ### Step 3.0 - Remove Old Phase 3 Artifacts
 
@@ -257,6 +271,7 @@ Architecture note:
 - this project uses **loose coupling**
 - the bird image files stay on the filesystem
 - SQLite stores metadata, descriptors, query cache, retrieval logs, judgments, and experiment summaries
+- the retrieval engine loads descriptor matrices from SQLite and performs exhaustive similarity scoring in application code
 - for the report, map this implementation to functional multimedia DB modules:
   - presentation / result presentation
   - query manager
@@ -293,6 +308,11 @@ In the UI:
 - choose one experiment configuration
 - keep `Top K = 5` for the course requirement
 - inspect both the visual ranking and the JSON payload
+
+Important behavior note:
+- the UI is a read-only retrieval demo
+- it uses the DB-backed gallery descriptors but does **not** persist query logs to SQLite
+- official persisted runs should come from the CLI retrieval path or Phase 6 experiments
 
 ### Step 5.2 - Optional CLI Retrieval
 
