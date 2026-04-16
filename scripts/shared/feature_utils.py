@@ -350,6 +350,12 @@ def normalize_external_query_image(
     target_size: Tuple[int, int] = (224, 224),
 ) -> Tuple[Image.Image, dict]:
     rgb = image.convert("RGB")
+    if (rgb.width, rgb.height) == target_size:
+        return rgb.copy(), {
+            "method": "already_normalized_keep_as_is",
+            "target_size": list(target_size),
+        }
+
     estimated_bbox = _estimate_foreground_bbox(rgb)
     if estimated_bbox is None:
         normalized = center_square_crop_resize(rgb, target_size=target_size)
