@@ -1,5 +1,5 @@
 {
-  "created_at_utc": "2026-04-13T15:41:25.005158+00:00",
+  "created_at_utc": "2026-04-16T15:23:37.304201+00:00",
   "dataset_version": "normalized_gallery_1000",
   "metadata_csv": "D:\\PTIT\\Multimedia Database\\data\\processed\\metadata\\images.csv",
   "processed_root": "D:\\PTIT\\Multimedia Database\\data\\processed",
@@ -28,6 +28,7 @@
     "color_moments": 9,
     "lbp_hist": 10,
     "hog_descriptor": 6084,
+    "silhouette_shape_descriptor": 15,
     "cnn_embedding": 512
   },
   "feature_file_map": {
@@ -36,6 +37,7 @@
     "color_moments": "color_moments.npy",
     "lbp_hist": "lbp_hist.npy",
     "hog_descriptor": "hog_descriptor.npy",
+    "silhouette_shape_descriptor": "silhouette_shape_descriptor.npy",
     "cnn_embedding": "cnn_embedding.npy"
   }
 }

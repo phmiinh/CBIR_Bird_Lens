@@ -170,6 +170,7 @@ def main() -> int:
         "color_moments": [],
         "lbp_hist": [],
         "hog_descriptor": [],
+        "silhouette_shape_descriptor": [],
     }
 
     device = select_device(args.device)

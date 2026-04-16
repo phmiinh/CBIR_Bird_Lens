@@ -87,6 +87,11 @@ Use this descriptor inventory as the official feature set:
   Extraction: grayscale HOG with a fixed cell/block configuration.
   Comparison: cosine similarity.
 
+- `silhouette_shape_descriptor`
+  Captures global body silhouette and coarse geometry from the bird foreground mask.
+  Extraction: Hu moments plus region properties such as area ratio, aspect ratio, extent, eccentricity, solidity, orientation, major/minor-axis ratio, and compactness.
+  Comparison: Euclidean distance converted to similarity with `S = 1 / (1 + d)`.
+
 - `cnn_embedding`
   Captures higher-level semantic similarity.
   Extraction: pooled embedding from pretrained `ResNet18`.
@@ -96,13 +101,14 @@ Use this descriptor inventory as the official feature set:
 Default retrieval configurations:
 
 - `handcrafted_only`
-  `regional_hsv_hist 0.30 + global_hsv_hist 0.15 + color_moments 0.10 + lbp_hist 0.20 + hog_descriptor 0.25`
+  tuned handcrafted stack with a light explicit-shape contribution:
+  `regional_hsv_hist 0.261 + global_hsv_hist 0.094 + color_moments 0.195 + lbp_hist 0.118 + hog_descriptor 0.272 + silhouette_shape_descriptor 0.060`
 
 - `cnn_only`
   `cnn_embedding 1.00`
 
 - `fusion`
-  `0.80 * handcrafted_score + 0.20 * cnn_score`
+  tuned handcrafted stack plus `cnn_embedding 0.20`
 
 ### 3. Make the database the center of the system
 
@@ -208,6 +214,7 @@ Minimum experiment set:
 - `cnn_only`
 - `fusion`
 - `ablation_no_regional_color`
+- `ablation_no_explicit_shape`
 - `ablation_no_shape`
 
 ### 5. Rewrite docs to match the new project identity
@@ -274,7 +281,7 @@ Additional report requirements to make the project academically strong:
 Acceptance criteria:
 
 - `1000` curated normalized images with complete metadata
-- all six descriptors extracted successfully
+- all seven descriptors extracted successfully
 - `images`, `preprocessing_metadata`, `feature_types`, `image_features`, `queries`, `query_features`, `retrieval_runs`, `retrieval_results`, `relevance_judgments`, and `experiments` populated consistently
 - retrieval works for:
   - `handcrafted_only`

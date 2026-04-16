@@ -10,7 +10,13 @@ import torch
 from PIL import Image
 from skimage.feature import hog, local_binary_pattern
 from skimage.filters import threshold_otsu
-from skimage.measure import label, regionprops
+from skimage.measure import (
+    label,
+    moments_central,
+    moments_hu,
+    moments_normalized,
+    regionprops,
+)
 from skimage.morphology import (
     binary_closing,
     binary_dilation,
@@ -36,6 +42,7 @@ FEATURE_FILE_MAP = {
     "color_moments": "color_moments.npy",
     "lbp_hist": "lbp_hist.npy",
     "hog_descriptor": "hog_descriptor.npy",
+    "silhouette_shape_descriptor": "silhouette_shape_descriptor.npy",
     "cnn_embedding": "cnn_embedding.npy",
 }
 
@@ -90,6 +97,27 @@ FEATURE_SPECS = {
             "block_norm": "L2-Hys",
         },
     },
+    "silhouette_shape_descriptor": {
+        "display_name": "Silhouette Shape Descriptor",
+        "similarity_metric": "euclidean_distance_then_inverse",
+        "is_primary": 1,
+        "information_value": "Global bird silhouette geometry derived from the foreground mask.",
+        "strengths": "Captures coarse body shape independently of dominant plumage color.",
+        "weaknesses": "Depends on foreground-mask quality and does not encode fine texture.",
+        "extraction_params": {
+            "hu_moments": 7,
+            "region_properties": [
+                "area_ratio",
+                "bbox_aspect_ratio_log1p",
+                "extent",
+                "eccentricity",
+                "solidity",
+                "orientation_normalized",
+                "major_minor_ratio_log1p",
+                "compactness",
+            ],
+        },
+    },
     "cnn_embedding": {
         "display_name": "CNN Embedding",
         "similarity_metric": "cosine_similarity",
@@ -104,13 +132,14 @@ FEATURE_SPECS = {
 DEFAULT_EXPERIMENTS = {
     "handcrafted_only": {
         "weights": {
-            "regional_hsv_hist": 0.30,
-            "global_hsv_hist": 0.15,
-            "color_moments": 0.10,
-            "lbp_hist": 0.20,
-            "hog_descriptor": 0.25,
+            "regional_hsv_hist": 0.261,
+            "global_hsv_hist": 0.094,
+            "color_moments": 0.195,
+            "lbp_hist": 0.118,
+            "hog_descriptor": 0.272,
+            "silhouette_shape_descriptor": 0.060,
         },
-        "notes": "Primary explainable descriptor stack without CNN.",
+        "notes": "Primary explainable descriptor stack with explicit silhouette shape kept as a light auxiliary cue after tuning.",
     },
     "cnn_only": {
         "weights": {"cnn_embedding": 1.00},
@@ -118,29 +147,41 @@ DEFAULT_EXPERIMENTS = {
     },
     "fusion": {
         "weights": {
-            "regional_hsv_hist": 0.24,
-            "global_hsv_hist": 0.12,
-            "color_moments": 0.08,
-            "lbp_hist": 0.16,
-            "hog_descriptor": 0.20,
+            "regional_hsv_hist": 0.209,
+            "global_hsv_hist": 0.075,
+            "color_moments": 0.156,
+            "lbp_hist": 0.094,
+            "hog_descriptor": 0.218,
+            "silhouette_shape_descriptor": 0.048,
             "cnn_embedding": 0.20,
         },
-        "notes": "Handcrafted-first fusion with CNN as a secondary complement.",
+        "notes": "Handcrafted-first fusion after tuning the explicit silhouette shape cue down to a light auxiliary role.",
     },
     "ablation_no_regional_color": {
         "weights": {
-            "global_hsv_hist": 0.25,
-            "color_moments": 0.15,
-            "lbp_hist": 0.25,
-            "hog_descriptor": 0.35,
+            "global_hsv_hist": 0.127,
+            "color_moments": 0.264,
+            "lbp_hist": 0.159,
+            "hog_descriptor": 0.367,
+            "silhouette_shape_descriptor": 0.083,
         },
         "notes": "Ablation removing spatial color layout information.",
     },
+    "ablation_no_explicit_shape": {
+        "weights": {
+            "regional_hsv_hist": 0.277,
+            "global_hsv_hist": 0.100,
+            "color_moments": 0.208,
+            "lbp_hist": 0.125,
+            "hog_descriptor": 0.290,
+        },
+        "notes": "Ablation removing the explicit silhouette shape descriptor while keeping color, texture, and contour.",
+    },
     "ablation_no_shape": {
         "weights": {
-            "regional_hsv_hist": 0.55,
-            "global_hsv_hist": 0.25,
-            "color_moments": 0.20,
+            "regional_hsv_hist": 0.475,
+            "global_hsv_hist": 0.170,
+            "color_moments": 0.355,
         },
         "notes": "Ablation removing texture and shape descriptors.",
     },
@@ -653,6 +694,67 @@ def extract_hog_descriptor(
     return np.asarray(vector, dtype=np.float32)
 
 
+def _prepare_shape_mask(foreground_mask: np.ndarray | None, image_size: Tuple[int, int]) -> np.ndarray:
+    width, height = image_size
+    if foreground_mask is None or not np.any(foreground_mask):
+        return np.ones((height, width), dtype=bool)
+
+    mask = foreground_mask.astype(bool)
+    mask = binary_closing(mask, disk(1))
+    mask = remove_small_holes(mask, area_threshold=max(16, int(mask.size * 0.001)))
+
+    labeled = label(mask)
+    if labeled.max() == 0:
+        return np.ones((height, width), dtype=bool)
+
+    largest_region = max(regionprops(labeled), key=lambda region: float(region.area))
+    component_mask = labeled == largest_region.label
+    return component_mask.astype(bool)
+
+
+def extract_silhouette_shape_descriptor(
+    image: Image.Image,
+    foreground_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    mask = _prepare_shape_mask(foreground_mask, image.size)
+    labeled = label(mask)
+    regions = regionprops(labeled)
+    if not regions:
+        raise ValueError("Unable to derive a valid foreground region for silhouette shape extraction.")
+
+    region = max(regions, key=lambda candidate: float(candidate.area))
+    component_mask = (labeled == region.label).astype(np.float32)
+
+    hu = moments_hu(moments_normalized(moments_central(component_mask)))
+    hu = np.sign(hu) * np.log1p(np.abs(hu))
+
+    min_row, min_col, max_row, max_col = region.bbox
+    bbox_height = max(1.0, float(max_row - min_row))
+    bbox_width = max(1.0, float(max_col - min_col))
+    area = float(region.area)
+    image_area = float(mask.shape[0] * mask.shape[1])
+    aspect_ratio = bbox_width / bbox_height
+    major_minor_ratio = float(region.major_axis_length) / max(float(region.minor_axis_length), 1e-6)
+    perimeter = max(float(region.perimeter), 1e-6)
+    compactness = float((4.0 * np.pi * area) / (perimeter * perimeter))
+    orientation = float(region.orientation) / (np.pi / 2.0)
+
+    geometric_features = np.asarray(
+        [
+            area / max(image_area, 1.0),
+            np.log1p(aspect_ratio),
+            float(region.extent),
+            float(region.eccentricity),
+            float(region.solidity),
+            float(np.clip(orientation, -1.0, 1.0)),
+            np.log1p(major_minor_ratio),
+            compactness,
+        ],
+        dtype=np.float32,
+    )
+    return np.concatenate([hu.astype(np.float32), geometric_features], axis=0)
+
+
 def extract_all_features(
     image: Image.Image,
     bins: Tuple[int, int, int],
@@ -674,6 +776,10 @@ def extract_all_features(
         "color_moments": extract_color_moments(rgb, foreground_mask=foreground_mask),
         "lbp_hist": extract_lbp_histogram(rgb, foreground_mask=foreground_mask),
         "hog_descriptor": extract_hog_descriptor(rgb, foreground_mask=foreground_mask, mask_method=mask_method),
+        "silhouette_shape_descriptor": extract_silhouette_shape_descriptor(
+            rgb,
+            foreground_mask=foreground_mask,
+        ),
     }
     if cnn_model is not None and device is not None:
         features["cnn_embedding"] = extract_cnn_embedding(cnn_model, rgb, device)

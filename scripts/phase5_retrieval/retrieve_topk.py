@@ -8,7 +8,7 @@ SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
 if str(SHARED_DIR) not in sys.path:
     sys.path.append(str(SHARED_DIR))
 
-from feature_utils import save_json, write_csv_rows
+from feature_utils import DEFAULT_EXPERIMENTS, save_json, write_csv_rows
 from retrieval_core import RetrievalEngine
 
 
@@ -28,13 +28,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--experiment-name",
-        choices=(
-            "handcrafted_only",
-            "cnn_only",
-            "fusion",
-            "ablation_no_regional_color",
-            "ablation_no_shape",
-        ),
+        choices=tuple(DEFAULT_EXPERIMENTS.keys()),
         default="handcrafted_only",
         help="Experiment configuration registered in the experiments table.",
     )

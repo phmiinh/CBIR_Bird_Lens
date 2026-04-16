@@ -174,6 +174,7 @@ Descriptor set:
 - color moments
 - LBP histogram
 - HOG descriptor
+- silhouette shape descriptor
 - CNN embedding (`ResNet18`, secondary only)
 
 Implementation note:
@@ -240,6 +241,7 @@ Expected outputs:
 - `data/features/color_moments.npy`
 - `data/features/lbp_hist.npy`
 - `data/features/hog_descriptor.npy`
+- `data/features/silhouette_shape_descriptor.npy`
 - `data/features/cnn_embedding.npy`
 - `data/features/features.jsonl`
 - `data/features/config.json`
@@ -334,6 +336,7 @@ Available experiment names:
 - `cnn_only`
 - `fusion`
 - `ablation_no_regional_color`
+- `ablation_no_explicit_shape`
 - `ablation_no_shape`
 
 Implementation note:
@@ -416,6 +419,10 @@ Expected outputs:
 - `outputs/eval/species_proxy_summary.json`
 
 The script also writes summary metrics back into the `experiments` table.
+
+Important note:
+- `manual_per_query.csv` and `manual_summary.json` are generated only after you fill and import the manual relevance CSV from Phase 6.3
+- if you have not imported manual judgments yet, Phase 7 will currently produce only the species-proxy evaluation outputs
 
 ## Phase 8 - Report Artifacts
 

@@ -11,7 +11,7 @@ SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
 if str(SHARED_DIR) not in sys.path:
     sys.path.append(str(SHARED_DIR))
 
-from feature_utils import resolve_processed_image_path
+from feature_utils import DEFAULT_EXPERIMENTS, resolve_processed_image_path
 from retrieval_core import RetrievalEngine
 
 
@@ -64,13 +64,7 @@ def build_app(engine: RetrievalEngine) -> gr.Blocks:
             query_input = gr.Image(label="Query Image", type="pil")
             with gr.Column():
                 experiment_input = gr.Dropdown(
-                    choices=[
-                        "handcrafted_only",
-                        "cnn_only",
-                        "fusion",
-                        "ablation_no_regional_color",
-                        "ablation_no_shape",
-                    ],
+                    choices=list(DEFAULT_EXPERIMENTS.keys()),
                     value="handcrafted_only",
                     label="Experiment",
                 )

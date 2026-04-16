@@ -11,17 +11,11 @@ if str(SHARED_DIR) not in sys.path:
     sys.path.append(str(SHARED_DIR))
 
 from db_utils import upsert_relevance_judgments
-from feature_utils import write_csv_rows
+from feature_utils import DEFAULT_EXPERIMENTS, write_csv_rows
 from retrieval_core import RetrievalEngine
 
 
-EXPERIMENT_NAMES = [
-    "handcrafted_only",
-    "cnn_only",
-    "fusion",
-    "ablation_no_regional_color",
-    "ablation_no_shape",
-]
+EXPERIMENT_NAMES = list(DEFAULT_EXPERIMENTS.keys())
 
 
 def parse_args() -> argparse.Namespace:

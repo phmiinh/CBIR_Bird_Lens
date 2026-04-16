@@ -20,6 +20,7 @@ from db_utils import (
     insert_preprocessing_metadata,
 )
 from feature_utils import build_feature_type_rows, load_csv_rows, load_feature_arrays, load_json
+from feature_utils import DEFAULT_EXPERIMENTS
 
 
 def parse_args() -> argparse.Namespace:
@@ -131,7 +132,7 @@ def main() -> int:
     print(f"Built SQLite DB:      {db_path}")
     print(f"Inserted images:      {len(manifest_rows)}")
     print(f"Inserted feature set: {', '.join(feature_dims.keys())}")
-    print(f"Registered experiments: handcrafted_only, cnn_only, fusion, ablation_no_regional_color, ablation_no_shape")
+    print(f"Registered experiments: {', '.join(DEFAULT_EXPERIMENTS.keys())}")
     return 0
 
 

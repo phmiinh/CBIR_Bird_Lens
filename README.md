@@ -13,6 +13,7 @@ The current repository is organized around a **DB-first retrieval pipeline**:
    - foreground-aware color moments
    - foreground-aware LBP histogram
    - foreground-aware HOG descriptor
+   - foreground-aware silhouette shape descriptor
    - CNN embedding (`ResNet18`, secondary only)
 3. Store metadata, preprocessing trace, descriptors, query cache, retrieval logs, judgments, and experiment summaries in **SQLite**.
 4. Run `top-k` retrieval under multiple experiment configurations using descriptor matrices loaded from SQLite.
@@ -98,7 +99,7 @@ The project was deliberately refocused away from a deep-learning-first narrative
 
 ## Current Working Target
 
-The refactor is designed for a curated gallery of **1000 normalized images**. If the local workspace still contains only `500` processed images, rerun the Phase 2 review and normalization flow in [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md) to scale the gallery before running the full experiments.
+The repository is designed around a curated gallery of **1000 normalized images**. In the current workspace, that processed gallery has already been built under [data/processed/images](/d:/PTIT/Multimedia%20Database/data/processed/images). Rerun the Phase 2 review and normalization flow in [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md) only if you want to rebuild the gallery from scratch.
 
 Metadata note:
 - `images.width` and `images.height` refer to the original source image dimensions

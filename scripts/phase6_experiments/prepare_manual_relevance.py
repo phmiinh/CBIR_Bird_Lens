@@ -10,7 +10,7 @@ if str(SHARED_DIR) not in sys.path:
     sys.path.append(str(SHARED_DIR))
 
 from db_utils import connect_db
-from feature_utils import write_csv_rows
+from feature_utils import DEFAULT_EXPERIMENTS, write_csv_rows
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,13 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiments",
         nargs="*",
-        default=[
-            "handcrafted_only",
-            "cnn_only",
-            "fusion",
-            "ablation_no_regional_color",
-            "ablation_no_shape",
-        ],
+        default=list(DEFAULT_EXPERIMENTS.keys()),
     )
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--output-csv", default="outputs/manual_relevance/manual_relevance_template.csv")
