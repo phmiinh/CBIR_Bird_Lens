@@ -32,6 +32,8 @@ from feature_utils import (
     select_device,
 )
 
+WEIGHT_SUM_TOLERANCE = 1e-6
+
 
 def _compute_similarity(metric_name: str, query_vector: np.ndarray, gallery_matrix: np.ndarray) -> np.ndarray:
     if metric_name == "cosine_similarity":
@@ -58,14 +60,7 @@ class RetrievalEngine:
         self.gallery_rows = load_gallery_rows(self.connection, keep_only=True)
         self.gallery_by_image_id = {int(row["image_id"]): row for row in self.gallery_rows}
         self.gallery_image_ids = [int(row["image_id"]) for row in self.gallery_rows]
-        self.feature_matrices = {
-            feature_name: load_gallery_feature_matrix(
-                self.connection,
-                self.gallery_image_ids,
-                feature_type_id,
-            )
-            for feature_name, feature_type_id in self.feature_type_map.items()
-        }
+        self.feature_matrices: Dict[str, np.ndarray] = {}
         self.device = select_device(device)
         self._cnn_model = None
 
@@ -81,19 +76,42 @@ class RetrievalEngine:
         row = self.experiment_rows.get(experiment_name)
         if row is None:
             raise ValueError(f"Experiment '{experiment_name}' is not registered in the database.")
+        weights = json.loads(str(row["weighting_json"]))
+        weight_sum = sum(float(value) for value in weights.values())
+        if abs(weight_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
+            raise ValueError(
+                f"Experiment '{experiment_name}' weights must sum to 1.0, got {weight_sum:.6f}."
+            )
+        missing_features = sorted(set(weights.keys()) - set(self.feature_type_map.keys()))
+        if missing_features:
+            raise ValueError(
+                f"Experiment '{experiment_name}' references missing feature types: {missing_features}"
+            )
         return {
             "experiment_id": int(row["experiment_id"]),
             "name": str(row["name"]),
-            "weights": json.loads(str(row["weighting_json"])),
+            "weights": weights,
             "notes": str(row["notes"] or ""),
         }
+
+    def _get_feature_matrix(self, feature_name: str) -> np.ndarray:
+        if feature_name not in self.feature_matrices:
+            feature_type_id = self.feature_type_map.get(feature_name)
+            if feature_type_id is None:
+                raise ValueError(f"Feature type '{feature_name}' is not registered in the database.")
+            self.feature_matrices[feature_name] = load_gallery_feature_matrix(
+                self.connection,
+                self.gallery_image_ids,
+                feature_type_id,
+            )
+        return self.feature_matrices[feature_name]
 
     def _load_gallery_query_features(self, image_id: int, required_features: List[str]) -> Dict[str, np.ndarray]:
         if image_id not in self.gallery_by_image_id:
             raise ValueError(f"image_id {image_id} was not found in the gallery database.")
         index = self.gallery_image_ids.index(int(image_id))
         return {
-            feature_name: self.feature_matrices[feature_name][index]
+            feature_name: self._get_feature_matrix(feature_name)[index]
             for feature_name in required_features
         }
 
@@ -187,7 +205,11 @@ class RetrievalEngine:
         fused_scores = np.zeros((len(self.gallery_rows),), dtype=np.float32)
         for feature_name in required_features:
             metric = FEATURE_SPECS[feature_name]["similarity_metric"]
-            score_vector = _compute_similarity(metric, query_vectors[feature_name], self.feature_matrices[feature_name])
+            score_vector = _compute_similarity(
+                metric,
+                query_vectors[feature_name],
+                self._get_feature_matrix(feature_name),
+            )
             per_feature_scores[feature_name] = score_vector
             fused_scores += float(experiment["weights"][feature_name]) * score_vector
 

@@ -485,7 +485,11 @@ def load_gallery_feature_matrix(
     if not image_ids:
         return np.zeros((0, 0), dtype=np.float32)
 
-    placeholders = ",".join("?" for _ in image_ids)
+    expected_image_ids = [int(image_id) for image_id in image_ids]
+    if len(set(expected_image_ids)) != len(expected_image_ids):
+        raise ValueError("image_ids must be unique when loading gallery feature matrices.")
+
+    placeholders = ",".join("?" for _ in expected_image_ids)
     rows = connection.execute(
         f"""
         SELECT image_id, vector_json
@@ -493,7 +497,25 @@ def load_gallery_feature_matrix(
         WHERE feature_type_id = ? AND image_id IN ({placeholders})
         ORDER BY image_id
         """,
-        [int(feature_type_id), *[int(image_id) for image_id in image_ids]],
+        [int(feature_type_id), *expected_image_ids],
     ).fetchall()
-    vectors = [parse_vector_json(str(row["vector_json"])) for row in rows]
+
+    vectors_by_image_id = {}
+    for row in rows:
+        image_id = int(row["image_id"])
+        if image_id in vectors_by_image_id:
+            raise ValueError(
+                f"Duplicate feature vector for image_id={image_id}, feature_type_id={feature_type_id}."
+            )
+        vectors_by_image_id[image_id] = parse_vector_json(str(row["vector_json"]))
+
+    missing_image_ids = [image_id for image_id in expected_image_ids if image_id not in vectors_by_image_id]
+    if missing_image_ids:
+        sample = ", ".join(str(image_id) for image_id in missing_image_ids[:5])
+        raise ValueError(
+            f"Missing {len(missing_image_ids)} feature vectors for feature_type_id={feature_type_id}; "
+            f"first missing image_ids: {sample}"
+        )
+
+    vectors = [vectors_by_image_id[image_id] for image_id in expected_image_ids]
     return np.vstack(vectors).astype(np.float32) if vectors else np.zeros((0, 0), dtype=np.float32)

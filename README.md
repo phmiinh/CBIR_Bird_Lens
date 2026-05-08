@@ -34,6 +34,8 @@ The repository follows a **loose-coupling multimedia DBMS architecture**:
 
 At the project scale of `1000` images, the baseline retrieval method is an **exhaustive linear scan** over the gallery descriptors. This is intentional: it keeps the system transparent, reproducible, and easy to explain in a course project. Advanced indexing is treated as future work, not as a requirement for validating the CBIR pipeline.
 
+Descriptor dimensions and storage tradeoffs are documented explicitly in [plan.md](/d:/PTIT/Multimedia%20Database/plan.md): `lbp_hist` uses uniform LBP with `P=8`, giving `10` bins; `hog_descriptor` uses `224x224` grayscale HOG with `16x16` cells, `2x2` blocks, and `9` orientations, giving `6084` dimensions. SQLite stores vectors as JSON text for auditability at this scale; production-scale retrieval would use binary vector storage and/or an ANN index.
+
 The report should frame the system as:
 - a multimedia database system for content-based retrieval
 - not an image classifier
@@ -61,6 +63,9 @@ The project was deliberately refocused away from a deep-learning-first narrative
 
 - [plan.md](/d:/PTIT/Multimedia%20Database/plan.md)
   Master refactor roadmap and architecture decisions for the DB-first version of the project.
+
+- [current_status_review.md](/d:/PTIT/Multimedia%20Database/current_status_review.md)
+  Current artifact-level status after the multi-agent verification pass, including what is complete and what still blocks final reporting.
 
 ## Repository Structure
 
@@ -104,3 +109,12 @@ The repository is designed around a curated gallery of **1000 normalized images*
 Metadata note:
 - `images.width` and `images.height` refer to the original source image dimensions
 - normalized gallery size is stored separately as `target_width` and `target_height` in `preprocessing_metadata`
+
+Current workspace status:
+- `1000` normalized gallery images are present
+- all `7` descriptors are extracted, including `silhouette_shape_descriptor`
+- SQLite contains `1000` image rows and `7000` image-feature rows
+- `50` query experiments have been run across `6` configurations
+- species-proxy evaluation outputs exist
+- report artifacts exist under `outputs/report_artifacts`
+- manual relevance labels are still blank, so manual `nDCG@5` and manual `Precision@5` are not available yet

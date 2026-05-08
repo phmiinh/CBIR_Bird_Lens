@@ -1,296 +1,176 @@
-# Báo Cáo Bàn Giao
-
-## Phạm Vi Công Việc
-
-Bản bàn giao này bao gồm:
-
-1. Đánh giá đa tác tử đối với trạng thái hiện tại của repository dựa trên:
-   - yêu cầu đề bài
-   - góp ý của giảng viên
-   - các tài liệu hiện tại [README.md](/d:/PTIT/Multimedia%20Database/README.md), [plan.md](/d:/PTIT/Multimedia%20Database/plan.md), và [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md)
-2. Một số chỉnh sửa nhỏ nhưng cần thiết để dự án bám đúng định hướng Multimedia Database CBIR
-3. Chạy lại sạch từ ranh giới Phase 2 đã review xong đến hết Phase 3 trích xuất đặc trưng
-
-Bản bàn giao này **chủ động dừng ở bước trích xuất đặc trưng**. Phase 4 build lại database được để làm bước tiếp theo.
-
-## Tóm Tắt Mức Độ Phù Hợp Với Đề Bài
-
-Hướng hiện tại của dự án là đúng.
-
-Đề bài yêu cầu:
-- xây dựng bộ dữ liệu ảnh chim đã được thu thập và chuẩn hóa
-- thiết kế bộ đặc trưng thể hiện cả sự tương đồng và khác biệt
-- xây dựng hệ cơ sở dữ liệu để quản lý metadata và descriptor
-- truy hồi `top-5` ảnh tương tự cho ảnh query
-- trình bày sơ đồ khối, quy trình xử lý, kết quả trung gian, demo và đánh giá
-
-Phản hồi của giảng viên nhấn mạnh:
-- đây là bài về **Hệ CSDL Đa Phương Tiện**, không phải bài phân loại bằng machine learning
-- báo cáo phải giải thích rõ:
-  - dùng những đặc trưng nào
-  - mỗi đặc trưng mang ý nghĩa thông tin gì
-  - thuật toán trích rút đặc trưng là gì
-  - cơ sở dữ liệu được tổ chức như thế nào
-  - cơ chế tìm kiếm ảnh tương đồng hoạt động ra sao
-  - hệ thống gồm những module nào, input/output của từng module là gì
-  - các công thức, mô hình toán học nào được sử dụng
-- đầu ra cần đúng theo **nội dung tương đồng**, không bắt buộc đúng cùng loài
+# Báo Cáo Bàn Giao Và Cập Nhật Trạng Thái
 
-Định hướng hiện tại của repo sau khi rà soát:
-- DB-first: đúng
-- loose coupling: đúng
-- handcrafted features là phần lõi dễ giải thích: đúng
-- CNN chỉ đóng vai trò phụ để so sánh/fusion: đúng
-- retrieval theo similarity, không phải classification: đúng
+Cập nhật: `2026-05-08` theo múi giờ Asia/Saigon
 
-## Đánh Giá Bằng Multi-Agent
+File này thay thế nội dung bàn giao cũ đã lỗi thời. Bản cũ nói pipeline chủ động dừng ở Phase 3, nhưng workspace hiện tại đã có artifact cho Phase 4, Phase 5/6, Phase 7 species-proxy và Phase 8.
 
-Hai subagent chuyên biệt đã được sử dụng trong lần đánh giá này:
+## Kết Luận Ngắn
 
-- tác tử `data-engineer`
-  Agent id: `019d8776-c915-7ba2-98ab-e1c882041002`
-- tác tử `database-optimizer`
-  Agent id: `019d8776-e4d6-7723-bcbe-e4f323c8629d`
+Hướng kỹ thuật của repo vẫn đúng với yêu cầu môn Cơ sở dữ liệu đa phương tiện:
 
-### Kết Luận Từ Nhánh Data Engineer
+- hệ thống là CBIR / multimedia retrieval, không phải classifier
+- ảnh được lưu trên filesystem, metadata và descriptors được quản lý trong SQLite
+- retrieval là approximate similarity ranking bằng descriptor, không phải exact-match SQL
+- handcrafted descriptors là phần chính để giải thích, CNN chỉ là baseline/phụ trợ
 
-Pipeline dữ liệu hiện tại đúng về cấu trúc, nhưng có ba lỗ hổng thực dụng:
+Trạng thái hiện tại:
 
-1. Phase 2 trước đó chưa an toàn khi rerun.
-   - Ảnh processed cũ và metadata cũ có thể còn sót lại trên đĩa.
-2. Artifact của Phase 3/4 trên đĩa đã cũ so với code hiện tại.
-   - Feature và DB trước đó được build trước khi bổ sung logic foreground-aware extraction.
-3. Export manual relevance trước đó chưa an toàn khi replay.
-   - Retrieval run cũ có thể làm nhiễu template gán nhãn relevance.
+- Phase 1: hoàn tất
+- Phase 2: hoàn tất với `1000` ảnh normalized
+- Phase 3: hoàn tất với đủ `7` descriptors
+- Phase 4: hoàn tất với SQLite DB
+- Phase 5/6: hoàn tất với persisted retrieval experiments
+- Phase 7: một phần, mới có species-proxy evaluation
+- Phase 8: hoàn tất, đã export report artifacts
+- Manual relevance: chưa xong và là blocker chính trước khi viết kết quả đánh giá cuối
 
-Khuyến nghị của nhánh này:
-- giữ lại các CSV review đã chốt
-- dọn sạch từ boundary processed trở đi
-- chạy lại normalization
-- chạy lại extraction
+## Multi-Agent Review Mới
 
-### Kết Luận Từ Nhánh Database Optimizer
+Hai subagent local trong `.codex/agents` đã được dùng để kiểm tra độc lập:
 
-Schema SQLite hiện tại là phù hợp với bài tập lớn này.
+- `data-engineer`
+  - agent id: `019e0835-2338-7843-b19d-7dde2d9b945a`
+  - phạm vi: source-to-sink pipeline, feature artifacts, descriptor dimensions, fusion/evaluation readiness
+- `database-optimizer`
+  - agent id: `019e0835-4fda-78c3-bbd1-e10797a13a52`
+  - phạm vi: SQLite schema, vector storage, retrieval access pattern, weight normalization, performance tradeoff
 
-Những điểm đang ổn:
-- ảnh vẫn lưu trên filesystem
-- SQLite quản lý metadata, feature vectors, query cache, judgments và experiment summaries
-- retrieval thực hiện bằng cách đọc descriptor từ SQLite rồi chấm điểm trong application code
-- cách này phù hợp với quy mô `1000` ảnh và dễ bảo vệ về mặt học thuật
+Kết quả chung:
 
-Điểm cần chỉnh:
-- mô tả “DB-backed retrieval” phải chính xác hơn
-- không nên mô tả như thể SQLite đang trực tiếp thực hiện vector similarity search trong SQL
+- artifact hiện tại khớp với kiến trúc DB-first
+- `silhouette_shape_descriptor` không còn thiếu
+- DB và retrieval/evaluation species-proxy đã tồn tại
+- manual relevance vẫn chưa được gán nhãn
+- các điểm đánh giá mới về LBP/HOG, fusion normalization, `vector_json`, và app-layer retrieval đã được rà soát; code đúng, tài liệu đã được bổ sung để giải thích rõ hơn
+- retrieval runtime đã được harden thêm: lazy-load feature matrices theo experiment, validate tổng weight `1.00`, và kiểm tra thiếu/trùng vector khi load gallery features
 
-Khuyến nghị nhỏ ở mức schema/index:
-- thêm composite index cho đường đánh giá latest run
+## Trạng Thái Artifact Hiện Tại
 
-Những thứ không nên over-engineer lúc này:
-- ANN
-- vector DB
-- SQL-native similarity search
-- thay SQLite bằng hệ khác
-- refactor schema lớn
+| Hạng mục | Trạng thái | Bằng chứng |
+| --- | --- | --- |
+| Raw CUB data | hoàn tất | `data/raw/cub2002011` |
+| Processed gallery | hoàn tất | `1000` ảnh trong `data/processed/images` |
+| Metadata | hoàn tất | `data/processed/metadata/images.csv` có `1000` dòng |
+| Feature matrices | hoàn tất | `7` file `.npy` trong `data/features` |
+| SQLite DB | hoàn tất | `data/features/cbir_features.sqlite` |
+| Retrieval experiments | hoàn tất | `outputs/experiments/retrieval_runs.csv` có `300` dòng |
+| Manual template | đã export | `outputs/manual_relevance/manual_relevance_template.csv` |
+| Species-proxy eval | hoàn tất | `outputs/eval/species_proxy_summary.json` |
+| Manual eval | chưa xong | chưa có `manual_summary.json` |
+| Report artifacts | hoàn tất | `outputs/report_artifacts/*` |
 
-## Đánh Giá Tài Liệu Tham Khảo
+## Xác Nhận `silhouette_shape_descriptor`
 
-Các file trong [documents](/d:/PTIT/Multimedia%20Database/documents) củng cố đúng hướng hiện tại.
+Vấn đề cũ: tài liệu cũ nói thiếu `silhouette_shape_descriptor.npy`.
 
-Kết luận thực dụng từ tài liệu:
-- hai tài liệu/sách về multimedia database management systems ủng hộ đúng cách trình bày hiện tại:
-  - multimedia information retrieval system
-  - feature extraction và content representation
-  - metadata management và storage management
-  - similarity-based retrieval
-- file báo cáo PTIT mẫu chủ yếu hữu ích ở mặt bố cục báo cáo, không nên dùng làm định hướng kỹ thuật
-  - nó nghiêng về classification
-  - không nên lấy nó làm phương pháp luận chính cho repo này
+Trạng thái mới: đã có và đã được kiểm chứng.
 
-Kết luận:
-- giữ nguyên hướng CBIR + Multimedia Database hiện tại
-- không quay lại hướng classification
+- file: `data/features/silhouette_shape_descriptor.npy`
+- shape: `(1000, 15)`
+- dtype: `float32`
+- có trong `data/features/config.json`
+- có trong `data/features/descriptor_table.csv`
+- có trong SQLite table `feature_types`
+- có `1000` rows trong `image_features`
+- có `50` query-feature rows trong `query_features`
 
-## Các Chỉnh Sửa Đã Áp Dụng
+Kích thước descriptor hiện tại:
 
-### 1. Phase 2 normalization đã hỗ trợ clean rerun
-
-Đã cập nhật:
-- [scripts/phase2_normalize/normalize_selected.py](/d:/PTIT/Multimedia%20Database/scripts/phase2_normalize/normalize_selected.py)
-
-Đã thêm:
-- `--clean-output`
-
-Tác dụng:
-- trước khi sinh lại bộ processed cuối, script sẽ xóa:
-  - `data/processed/images`
-  - `data/processed/metadata`
-  - `outputs/intermediate_examples`
-
-Việc này xử lý lỗ hổng idempotency chính của Phase 2.
-
-### 2. Export manual relevance giờ chỉ lấy latest runs
-
-Đã cập nhật:
-- [scripts/phase6_experiments/prepare_manual_relevance.py](/d:/PTIT/Multimedia%20Database/scripts/phase6_experiments/prepare_manual_relevance.py)
-
-Tác dụng:
-- template export cho manual relevance giờ chỉ dùng run mới nhất cho mỗi cặp `(query_id, experiment)`
-- run cũ không còn làm bẩn template annotate ở các lần chạy sau
-
-### 3. SQLite schema được bổ sung index nhỏ, ít rủi ro
-
-Đã cập nhật:
-- [scripts/shared/db_utils.py](/d:/PTIT/Multimedia%20Database/scripts/shared/db_utils.py)
-
-Đã thêm:
-- `idx_retrieval_runs_latest(query_id, experiment_id, run_id DESC)`
-- `idx_relevance_judgments_source_query(judgment_source, query_id, image_id)`
-
-Đây là các tối ưu nhỏ, không làm thay đổi kiến trúc tổng thể.
-
-### 4. Phần mô tả cleanup đã được sửa cho đúng
-
-Đã cập nhật:
-- [scripts/phase3_descriptor_extraction/clean_phase_outputs.py](/d:/PTIT/Multimedia%20Database/scripts/phase3_descriptor_extraction/clean_phase_outputs.py)
-
-Tác dụng:
-- script giờ mô tả chính xác là đang xóa **artifact downstream từ Phase 3 trở đi**, không chỉ riêng Phase 3
-
-### 5. Tài liệu đã được chỉnh lại cho chính xác hơn
-
-Đã cập nhật:
-- [README.md](/d:/PTIT/Multimedia%20Database/README.md)
-- [plan.md](/d:/PTIT/Multimedia%20Database/plan.md)
-- [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md)
-
-Các điểm được làm rõ:
-- retrieval đọc descriptor matrices từ SQLite
-- similarity scoring được thực hiện trong application code
-- UI demo là read-only, không persist query logs
-- `images.width` và `images.height` là kích thước ảnh gốc
-- kích thước normalized nằm trong preprocessing metadata
-
-## Các Lệnh Đã Chạy
-
-### Chạy lại Phase 2
-
-```powershell
-.\.venv\Scripts\python.exe scripts\phase2_normalize\normalize_selected.py `
-  --selection-csv outputs/review/final_reviewed_candidates_1000.csv `
-  --dataset-root data/raw/cub2002011 `
-  --padding-ratio 0.35 `
-  --clean-output `
-  --require-count 1000 `
-  --max-images 1000
-```
-
-### Dọn Phase 3+ downstream cũ
-
-```powershell
-.\.venv\Scripts\python.exe scripts\phase3_descriptor_extraction\clean_phase_outputs.py --yes
-```
-
-### Chạy lại Phase 3
-
-```powershell
-.\.venv\Scripts\python.exe scripts\phase3_descriptor_extraction\extract_features.py `
-  --metadata-csv data/processed/metadata/images.csv `
-  --processed-root data/processed `
-  --output-dir data/features `
-  --device auto
-```
-
-## Kết Quả Thực Thi
-
-### Đầu ra của Phase 2
-
-Đã kiểm tra sau khi rerun:
-- số ảnh processed: `1000`
-- số dòng metadata CSV: `1000`
-- số file intermediate examples: `15`
-
-Các output hiện tại:
-- [data/processed/images](/d:/PTIT/Multimedia%20Database/data/processed/images)
-- [data/processed/metadata/images.csv](/d:/PTIT/Multimedia%20Database/data/processed/metadata/images.csv)
-- [data/processed/metadata/images.jsonl](/d:/PTIT/Multimedia%20Database/data/processed/metadata/images.jsonl)
-- [outputs/intermediate_examples](/d:/PTIT/Multimedia%20Database/outputs/intermediate_examples)
-
-### Đầu ra của Phase 3
-
-Đã kiểm tra sau khi rerun:
-- số dòng manifest: `1000`
-- số dòng feature JSONL: `1000`
-- toàn bộ descriptor đã được extract thành công cho `1000` ảnh
-
-Các output hiện tại:
-- [data/features/images_manifest.csv](/d:/PTIT/Multimedia%20Database/data/features/images_manifest.csv)
-- [data/features/descriptor_table.csv](/d:/PTIT/Multimedia%20Database/data/features/descriptor_table.csv)
-- [data/features/global_hsv_hist.npy](/d:/PTIT/Multimedia%20Database/data/features/global_hsv_hist.npy)
-- [data/features/regional_hsv_hist.npy](/d:/PTIT/Multimedia%20Database/data/features/regional_hsv_hist.npy)
-- [data/features/color_moments.npy](/d:/PTIT/Multimedia%20Database/data/features/color_moments.npy)
-- [data/features/lbp_hist.npy](/d:/PTIT/Multimedia%20Database/data/features/lbp_hist.npy)
-- [data/features/hog_descriptor.npy](/d:/PTIT/Multimedia%20Database/data/features/hog_descriptor.npy)
-- [data/features/cnn_embedding.npy](/d:/PTIT/Multimedia%20Database/data/features/cnn_embedding.npy)
-- [data/features/features.jsonl](/d:/PTIT/Multimedia%20Database/data/features/features.jsonl)
-- [data/features/config.json](/d:/PTIT/Multimedia%20Database/data/features/config.json)
-
-### Kiểm tra cấu hình Phase 3
-
-Rút ra từ [config.json](/d:/PTIT/Multimedia%20Database/data/features/config.json):
-
-- `dataset_version = normalized_gallery_1000`
-- `cnn_backbone = resnet18`
-- `device_used = cpu`
-- `include_cnn = true`
-- `foreground_focus = true`
-- `regional_grid = [2, 2]`
-- `hsv_bins = [8, 8, 8]`
-
-Thống kê foreground-mask:
-- `estimated_foreground_mask = 998`
-- `bbox_rect_fallback = 2`
-
-Kích thước các descriptor:
 - `global_hsv_hist = 512`
 - `regional_hsv_hist = 2048`
 - `color_moments = 9`
 - `lbp_hist = 10`
 - `hog_descriptor = 6084`
+- `silhouette_shape_descriptor = 15`
 - `cnn_embedding = 512`
 
-## Đánh Giá Cuối Cùng
+## SQLite Status
 
-Trạng thái hiện tại của dự án đã sạch và chặt chẽ hơn trước lần rerun này.
+SQLite DB hiện tại có các row counts:
 
-Những điều hiện đã đúng:
-- narrative của repo bám sát đề bài và góp ý của giảng viên
-- bộ `1000` ảnh cuối đã được build lại sạch
-- đặc trưng đã được trích xuất lại sạch
-- artifact trên đĩa giờ khớp với code foreground-aware hiện tại và khớp với mô tả trong tài liệu
+| Table | Rows |
+| --- | ---: |
+| `images` | `1000` |
+| `preprocessing_metadata` | `1000` |
+| `feature_types` | `7` |
+| `image_features` | `7000` |
+| `queries` | `50` |
+| `query_features` | `350` |
+| `retrieval_runs` | `300` |
+| `retrieval_results` | `1500` |
+| `experiments` | `6` |
+| `relevance_judgments` | `50000` |
 
-Những gì **chưa** được làm ở lần này:
-- build lại SQLite ở Phase 4
-- rerun retrieval ở Phase 5
-- chạy experiments ở Phase 6
-- đánh giá ở Phase 7
-- export report artifacts ở Phase 8
+`relevance_judgments` hiện chỉ có `judgment_source = 'species_proxy'`.
 
-Điểm dừng này là chủ động, vì milestone bạn yêu cầu là: **chạy lại đến hết bước trích xuất đặc trưng**.
+## Evaluation Status
 
-## Bước Tiếp Theo Được Khuyến Nghị
+Species-proxy evaluation đã có:
 
-Chạy Phase 4 ngay sau đó:
+| Experiment | Species-proxy Precision@5 |
+| --- | ---: |
+| `handcrafted_only` | `0.040` |
+| `cnn_only` | `0.232` |
+| `fusion` | `0.052` |
+| `ablation_no_regional_color` | `0.028` |
+| `ablation_no_explicit_shape` | `0.032` |
+| `ablation_no_shape` | `0.028` |
 
-```powershell
-.\.venv\Scripts\python.exe scripts\phase4_feature_database\build_feature_db.py `
-  --features-dir data/features `
-  --db-path data/features/cbir_features.sqlite `
-  --overwrite
-```
+Cần ghi rõ trong báo cáo:
 
-Sau đó tiếp tục:
-1. Phase 5 retrieval
-2. Phase 6 experiments và manual relevance
-3. Phase 7 evaluation
-4. Phase 8 report artifacts
+- species-proxy chỉ là baseline yếu
+- không nên kết luận chất lượng CBIR dựa trên species-proxy
+- metric chính vẫn phải là manual `nDCG@5`
+
+## Manual Relevance Status
+
+Manual relevance chưa xong.
+
+Bằng chứng:
+
+- `outputs/manual_relevance/manual_relevance_template.csv` tồn tại
+- file này có `774` dòng cần annotate
+- tất cả `relevance_grade` đang trống
+- chưa có manual judgments trong SQLite
+- chưa có `outputs/eval/manual_per_query.csv`
+- chưa có `outputs/eval/manual_summary.json`
+
+Lý do có `774` dòng:
+
+- experiments hiện có `50 x 6 x 5 = 1500` top-k result rows
+- template đã deduplicate các cặp query-candidate trùng nhau
+- sau dedup còn `774` cặp cần chấm điểm
+
+## Phase 8 Report Artifacts
+
+Đã export Phase 8 trong lần cập nhật này:
+
+- `outputs/report_artifacts/descriptor_table.csv`
+- `outputs/report_artifacts/system_block_diagram.md`
+- `outputs/report_artifacts/experiment_summaries.csv`
+- `outputs/report_artifacts/example_retrieval_breakdown.json`
+
+Giới hạn:
+
+- `experiment_summaries.csv` hiện chỉ có species-proxy metrics
+- sau khi import manual judgments, cần rerun Phase 7 và Phase 8
+
+## Các Việc Còn Lại
+
+Thứ tự nên làm tiếp:
+
+1. Điền `relevance_grade` trong `outputs/manual_relevance/manual_relevance_template.csv`.
+2. Import manual judgments bằng `scripts/phase6_experiments/import_relevance_judgments.py`.
+3. Rerun Phase 7 để sinh manual `nDCG@5` và manual `Precision@5`.
+4. Rerun Phase 8 để update report artifacts.
+5. Viết báo cáo cuối dựa trên artifact đã refresh.
+
+Nội dung báo cáo vẫn cần chuẩn bị thêm:
+
+- bảng I/O từng module
+- công thức Chi-square, Euclidean, cosine, weighted fusion
+- công thức `Precision@5` và `nDCG@5`
+- bảng ý nghĩa thông tin của từng descriptor
+- ERD/schema diagram
+- hình intermediate result
+- top-5 retrieval example với per-feature score

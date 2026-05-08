@@ -12,6 +12,13 @@ Architecture baseline used throughout the pipeline:
 - **exhaustive linear scan**: accepted baseline retrieval strategy for the `1000`-image course-project scale
 - **descriptor matrices loaded from SQLite**: retrieval reads descriptors from SQLite, then scores them in application code
 
+Current workspace status:
+- Phase 1-4 are complete in the current workspace.
+- Phase 5/6 persisted retrieval experiments exist for `50` queries, `6` experiments, and `top-5` results.
+- Phase 7 currently has species-proxy evaluation outputs only.
+- Phase 8 report artifacts exist under `outputs/report_artifacts`.
+- Manual relevance labels are not filled yet; rerun Phase 7 and Phase 8 after importing manual judgments.
+
 ## Phase 1 - Dataset Setup
 
 Download and extract the CUB-200-2011 dataset:
@@ -172,8 +179,8 @@ Descriptor set:
 - global HSV histogram
 - regional HSV histogram (`2x2`)
 - color moments
-- LBP histogram
-- HOG descriptor
+- LBP histogram: uniform LBP with `P=8`, `R=1`, so `P + 2 = 10` bins
+- HOG descriptor: `224x224` grayscale, `pixels_per_cell=(16,16)`, `cells_per_block=(2,2)`, `orientations=9`, so `13 x 13 x 4 x 9 = 6084`
 - silhouette shape descriptor
 - CNN embedding (`ResNet18`, secondary only)
 
@@ -274,6 +281,7 @@ Architecture note:
 - the bird image files stay on the filesystem
 - SQLite stores metadata, descriptors, query cache, retrieval logs, judgments, and experiment summaries
 - the retrieval engine loads descriptor matrices from SQLite and performs exhaustive similarity scoring in application code
+- descriptor vectors are stored as JSON text for transparency and reproducibility at the `1000`-image course-project scale; this is not a production storage/indexing strategy
 - for the report, map this implementation to functional multimedia DB modules:
   - presentation / result presentation
   - query manager
@@ -423,6 +431,7 @@ The script also writes summary metrics back into the `experiments` table.
 Important note:
 - `manual_per_query.csv` and `manual_summary.json` are generated only after you fill and import the manual relevance CSV from Phase 6.3
 - if you have not imported manual judgments yet, Phase 7 will currently produce only the species-proxy evaluation outputs
+- in the current workspace, only `species_proxy_per_query.csv` and `species_proxy_summary.json` are present
 
 ## Phase 8 - Report Artifacts
 
@@ -441,6 +450,10 @@ Expected outputs:
 - `outputs/report_artifacts/system_block_diagram.md`
 - `outputs/report_artifacts/experiment_summaries.csv`
 - `outputs/report_artifacts/example_retrieval_breakdown.json`
+
+Current workspace note:
+- these Phase 8 files have been exported
+- the current experiment summaries contain species-proxy metrics only until manual relevance is imported and Phase 7/8 are rerun
 
 Use these outputs to build the report sections that the assignment explicitly asks for:
 - system block diagram

@@ -246,6 +246,8 @@ def main() -> int:
             "similarity_metric",
             "is_primary",
             "information_value",
+            "dimension_derivation",
+            "extraction_params_json",
             "strengths",
             "weaknesses",
         ],

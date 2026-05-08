@@ -32,16 +32,19 @@ flowchart LR
     A[Raw CUB Images + Bounding Boxes] --> B[Phase 2 Preprocessing]
     B --> C[Normalized 224x224 Gallery]
     C --> D[Feature Extraction]
-    D --> E[SQLite Feature Database]
+    D --> E[SQLite Descriptor System of Record]
     Q[Query Image] --> R[Query Preprocessing]
     R --> S[Query Feature Extraction]
     S --> E
-    E --> T[Similarity Computation]
+    E --> T[Application-Layer Exhaustive kNN]
     T --> U[Score Fusion + Ranking]
     U --> V[Top-5 Retrieval Results]
     V --> W[Evaluation and Experiment Tracking]
     W --> E
 ```
+
+SQLite stores metadata, descriptor definitions, vectors, query cache, run logs, judgments, and experiment summaries.
+The similarity scan and score fusion run in application code; SQLite is not treated as a native vector-search engine.
 """
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
@@ -65,6 +68,8 @@ def main() -> int:
             "similarity_metric",
             "is_primary",
             "information_value",
+            "dimension_derivation",
+            "extraction_params_json",
             "strengths",
             "weaknesses",
         ],

@@ -8,6 +8,11 @@ This file covers only:
 
 For the working execution flow, continue with [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md).
 
+Current local workspace note:
+- the project virtual environment `.venv` is present
+- raw CUB data is present under `data/raw/cub2002011`
+- downstream pipeline status is tracked in [current_status_review.md](/d:/PTIT/Multimedia%20Database/current_status_review.md)
+
 ## 1. Create and Activate the Virtual Environment
 
 From the repository root:

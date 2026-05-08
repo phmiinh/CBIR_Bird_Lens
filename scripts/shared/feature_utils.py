@@ -52,6 +52,7 @@ FEATURE_SPECS = {
         "similarity_metric": "chi_square_distance_then_inverse",
         "is_primary": 1,
         "information_value": "Overall color distribution of the bird image.",
+        "dimension_derivation": "8 x 8 x 8 HSV bins = 512.",
         "strengths": "Robust for dominant plumage color and large color contrast.",
         "weaknesses": "Weak on spatial arrangement and fine texture.",
         "extraction_params": {"bins": list(GLOBAL_HSV_BINS)},
@@ -61,6 +62,7 @@ FEATURE_SPECS = {
         "similarity_metric": "chi_square_distance_then_inverse",
         "is_primary": 1,
         "information_value": "Spatial color layout using a fixed 2x2 grid.",
+        "dimension_derivation": "2 x 2 regions, each with 8 x 8 x 8 HSV bins: 4 x 512 = 2048.",
         "strengths": "Captures color placement after normalization and side-view alignment.",
         "weaknesses": "Sensitive to crop shifts and local occlusion.",
         "extraction_params": {"bins": list(GLOBAL_HSV_BINS), "grid": list(REGIONAL_GRID)},
@@ -70,6 +72,7 @@ FEATURE_SPECS = {
         "similarity_metric": "euclidean_distance_then_inverse",
         "is_primary": 1,
         "information_value": "Coarse HSV statistics via mean, standard deviation, and skewness.",
+        "dimension_derivation": "3 HSV channels x 3 moments (mean, standard deviation, skewness) = 9.",
         "strengths": "Compact descriptor with good global color summary.",
         "weaknesses": "Too coarse for layout and local patterns.",
         "extraction_params": {"channels": ["H", "S", "V"], "moments": ["mean", "std", "skewness"]},
@@ -79,6 +82,7 @@ FEATURE_SPECS = {
         "similarity_metric": "chi_square_distance_then_inverse",
         "is_primary": 1,
         "information_value": "Local micro-texture patterns in grayscale.",
+        "dimension_derivation": "Uniform LBP with P=8 neighbors uses P+2 histogram bins = 10.",
         "strengths": "Useful for feather texture and repeated local patterns.",
         "weaknesses": "Weak for global shape and large-scale geometry.",
         "extraction_params": {"points": LBP_POINTS, "radius": LBP_RADIUS, "method": "uniform"},
@@ -88,6 +92,10 @@ FEATURE_SPECS = {
         "similarity_metric": "cosine_similarity",
         "is_primary": 1,
         "information_value": "Edge structure, contour, and pose information.",
+        "dimension_derivation": (
+            "224x224 grayscale image, 16x16 pixels per cell -> 14x14 cells; "
+            "2x2 cells per block -> 13x13 blocks; 13 x 13 x 2 x 2 x 9 = 6084."
+        ),
         "strengths": "Good for silhouette and body-part orientation.",
         "weaknesses": "Less robust to cluttered edges and weak contrast.",
         "extraction_params": {
@@ -102,6 +110,7 @@ FEATURE_SPECS = {
         "similarity_metric": "euclidean_distance_then_inverse",
         "is_primary": 1,
         "information_value": "Global bird silhouette geometry derived from the foreground mask.",
+        "dimension_derivation": "7 Hu moments + 8 foreground-region properties = 15.",
         "strengths": "Captures coarse body shape independently of dominant plumage color.",
         "weaknesses": "Depends on foreground-mask quality and does not encode fine texture.",
         "extraction_params": {
@@ -123,6 +132,7 @@ FEATURE_SPECS = {
         "similarity_metric": "cosine_similarity",
         "is_primary": 0,
         "information_value": "High-level semantic visual embedding from pretrained ResNet18.",
+        "dimension_derivation": "ResNet18 global average pooling output = 512.",
         "strengths": "Strong semantic abstraction and robust visual similarity.",
         "weaknesses": "Lower explainability; treated as secondary in this project.",
         "extraction_params": {"backbone": "resnet18", "pooling": "global_avg_pool"},
@@ -845,6 +855,8 @@ def build_descriptor_table_rows(feature_dims: Dict[str, int]) -> List[dict]:
                 "similarity_metric": spec["similarity_metric"],
                 "is_primary": spec["is_primary"],
                 "information_value": spec["information_value"],
+                "dimension_derivation": spec.get("dimension_derivation", ""),
+                "extraction_params_json": json.dumps(spec["extraction_params"], ensure_ascii=True),
                 "strengths": spec["strengths"],
                 "weaknesses": spec["weaknesses"],
             }
