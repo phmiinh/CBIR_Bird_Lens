@@ -98,6 +98,7 @@ def main() -> int:
             "processed_relative_path": row["processed_relative_path"],
             "fused_score": row["fused_score"],
             "per_feature_scores_json": row["per_feature_scores"],
+            "per_feature_fusion_scores_json": row.get("per_feature_fusion_scores", {}),
         }
         for row in payload["results"]
     ]
@@ -112,11 +113,13 @@ def main() -> int:
             "processed_relative_path",
             "fused_score",
             "per_feature_scores_json",
+            "per_feature_fusion_scores_json",
         ],
     )
     save_json(Path(args.output_json).resolve(), payload)
 
     print(f"Experiment:  {args.experiment_name}")
+    print(f"Score norm:  {payload.get('score_normalization', 'raw')}")
     print(f"Query ID:    {payload['query_id']}")
     print(f"Run ID:      {payload['run_id']}")
     print(f"Saved CSV:   {Path(args.output_csv).resolve()}")

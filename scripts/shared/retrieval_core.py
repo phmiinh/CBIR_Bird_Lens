@@ -33,6 +33,7 @@ from feature_utils import (
 )
 
 WEIGHT_SUM_TOLERANCE = 1e-6
+SCORE_NORMALIZATION_MODES = {"raw", "percentile_5_95", "rank"}
 
 
 def _compute_similarity(metric_name: str, query_vector: np.ndarray, gallery_matrix: np.ndarray) -> np.ndarray:
@@ -43,6 +44,26 @@ def _compute_similarity(metric_name: str, query_vector: np.ndarray, gallery_matr
     if metric_name == "euclidean_distance_then_inverse":
         return euclidean_similarity_scores(query_vector, gallery_matrix)
     raise ValueError(f"Unsupported similarity metric: {metric_name}")
+
+
+def _normalize_similarity_scores(scores: np.ndarray, mode: str) -> np.ndarray:
+    mode = str(mode or "raw").strip()
+    if mode == "raw":
+        return scores.astype(np.float32, copy=False)
+    if mode == "percentile_5_95":
+        lower, upper = np.percentile(scores, [5.0, 95.0])
+        span = float(upper - lower)
+        if span <= 1e-12:
+            return np.zeros_like(scores, dtype=np.float32)
+        normalized = (scores - float(lower)) / span
+        return np.clip(normalized, 0.0, 1.0).astype(np.float32)
+    if mode == "rank":
+        order = np.argsort(-scores)
+        ranks = np.empty_like(order, dtype=np.float32)
+        ranks[order] = np.arange(len(scores), dtype=np.float32)
+        denominator = max(float(len(scores) - 1), 1.0)
+        return (1.0 - (ranks / denominator)).astype(np.float32)
+    raise ValueError(f"Unsupported score normalization mode: {mode}")
 
 
 class RetrievalEngine:
@@ -87,10 +108,19 @@ class RetrievalEngine:
             raise ValueError(
                 f"Experiment '{experiment_name}' references missing feature types: {missing_features}"
             )
+        if "score_normalization" in row.keys():
+            score_normalization = str(row["score_normalization"] or "raw")
+        else:
+            score_normalization = "raw"
+        if score_normalization not in SCORE_NORMALIZATION_MODES:
+            raise ValueError(
+                f"Experiment '{experiment_name}' uses unsupported score normalization: {score_normalization}"
+            )
         return {
             "experiment_id": int(row["experiment_id"]),
             "name": str(row["name"]),
             "weights": weights,
+            "score_normalization": score_normalization,
             "notes": str(row["notes"] or ""),
         }
 
@@ -105,6 +135,11 @@ class RetrievalEngine:
                 feature_type_id,
             )
         return self.feature_matrices[feature_name]
+
+    def preload_feature_matrices(self, feature_names=None) -> None:
+        names = list(feature_names) if feature_names is not None else sorted(self.feature_type_map.keys())
+        for feature_name in names:
+            self._get_feature_matrix(feature_name)
 
     def _load_gallery_query_features(self, image_id: int, required_features: List[str]) -> Dict[str, np.ndarray]:
         if image_id not in self.gallery_by_image_id:
@@ -202,6 +237,7 @@ class RetrievalEngine:
             )
 
         per_feature_scores: Dict[str, np.ndarray] = {}
+        per_feature_fusion_scores: Dict[str, np.ndarray] = {}
         fused_scores = np.zeros((len(self.gallery_rows),), dtype=np.float32)
         for feature_name in required_features:
             metric = FEATURE_SPECS[feature_name]["similarity_metric"]
@@ -210,8 +246,13 @@ class RetrievalEngine:
                 query_vectors[feature_name],
                 self._get_feature_matrix(feature_name),
             )
+            fusion_score_vector = _normalize_similarity_scores(
+                score_vector,
+                str(experiment["score_normalization"]),
+            )
             per_feature_scores[feature_name] = score_vector
-            fused_scores += float(experiment["weights"][feature_name]) * score_vector
+            per_feature_fusion_scores[feature_name] = fusion_score_vector
+            fused_scores += float(experiment["weights"][feature_name]) * fusion_score_vector
 
         if query_image_id is not None:
             exclude_index = self.gallery_image_ids.index(int(query_image_id))
@@ -230,6 +271,10 @@ class RetrievalEngine:
                     "processed_relative_path": str(gallery_row["processed_relative_path"]),
                     "per_feature_scores": {
                         feature_name: float(per_feature_scores[feature_name][ranked_index])
+                        for feature_name in required_features
+                    },
+                    "per_feature_fusion_scores": {
+                        feature_name: float(per_feature_fusion_scores[feature_name][ranked_index])
                         for feature_name in required_features
                     },
                     "fused_score": float(fused_scores[ranked_index]),
@@ -258,6 +303,8 @@ class RetrievalEngine:
             "query_id": query_id,
             "run_id": run_id,
             "experiment_name": experiment_name,
+            "score_normalization": str(experiment["score_normalization"]),
+            "query_preprocess_params": external_preprocess_params or {},
             "top_k": top_k,
             "results": ranked_rows,
         }

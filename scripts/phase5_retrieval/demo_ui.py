@@ -11,8 +11,10 @@ SHARED_DIR = Path(__file__).resolve().parents[1] / "shared"
 if str(SHARED_DIR) not in sys.path:
     sys.path.append(str(SHARED_DIR))
 
-from feature_utils import DEFAULT_EXPERIMENTS, resolve_processed_image_path
+from feature_utils import resolve_processed_image_path
 from retrieval_core import RetrievalEngine
+
+DEMO_EXPERIMENTS = ("calibrated_handcrafted", "fusion", "cnn_only")
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +33,13 @@ def parse_args() -> argparse.Namespace:
 def build_app(engine: RetrievalEngine) -> gr.Blocks:
     temp_dir = (Path("outputs") / "demo_ui_queries").resolve()
     temp_dir.mkdir(parents=True, exist_ok=True)
+    registered_experiments = list(engine.experiment_rows.keys())
+    experiment_names = [name for name in DEMO_EXPERIMENTS if name in engine.experiment_rows]
+    if not experiment_names:
+        experiment_names = registered_experiments
+    if not experiment_names:
+        raise ValueError("No experiments are registered in the SQLite database.")
+    default_experiment = experiment_names[0]
 
     def run_demo(query_image, experiment_name, top_k):
         if query_image is None:
@@ -64,11 +73,11 @@ def build_app(engine: RetrievalEngine) -> gr.Blocks:
             query_input = gr.Image(label="Query Image", type="pil")
             with gr.Column():
                 experiment_input = gr.Dropdown(
-                    choices=list(DEFAULT_EXPERIMENTS.keys()),
-                    value="handcrafted_only",
+                    choices=experiment_names,
+                    value=default_experiment,
                     label="Experiment",
                 )
-                topk_input = gr.Slider(1, 20, value=5, step=1, label="Top K")
+                topk_input = gr.Slider(1, 10, value=5, step=1, label="Top K")
                 run_btn = gr.Button("Run Retrieval", variant="primary")
 
         gallery_output = gr.Gallery(label="Top-K Results", columns=5, rows=1, height=360, object_fit="contain")
@@ -86,6 +95,9 @@ def main() -> int:
         processed_root=Path(args.processed_root),
         device=args.device,
     )
+    # Gradio executes callbacks in worker threads. Preload gallery matrices in
+    # the main thread so live demo callbacks do not touch the SQLite connection.
+    engine.preload_feature_matrices()
     app = build_app(engine)
     app.launch(server_name=args.host, server_port=args.port, share=args.share)
     engine.close()

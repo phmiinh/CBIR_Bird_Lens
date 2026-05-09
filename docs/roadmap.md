@@ -113,7 +113,7 @@ Architecture baseline used throughout the pipeline:
 
 Current workspace status:
 - Phase 1-4 are complete in the current workspace.
-- Phase 5/6 persisted retrieval experiments exist for `50` queries, `6` experiments, and `top-5` results.
+- Phase 5/6 persisted retrieval experiments exist for `50` queries, `9` experiments, and `top-5` results.
 - Phase 7 currently has species-proxy evaluation outputs only.
 - Phase 8 report artifacts exist under `outputs/report_artifacts`.
 - Manual relevance labels are not filled yet; rerun Phase 7 and Phase 8 after importing manual judgments.
@@ -414,7 +414,7 @@ http://127.0.0.1:7860
 
 In the UI:
 - upload a bird query image
-- choose one experiment configuration
+- choose one of the three demo configurations: `calibrated_handcrafted`, `fusion`, or `cnn_only`
 - keep `Top K = 5` for the course requirement
 - inspect both the visual ranking and the JSON payload
 
@@ -431,7 +431,7 @@ If you still need a scriptable terminal-only retrieval command for reproducible 
 python scripts/phase5_retrieval/retrieve_topk.py `
   --db-path data/features/cbir_features.sqlite `
   --processed-root data/processed `
-  --experiment-name handcrafted_only `
+  --experiment-name calibrated_handcrafted `
   --query-image-id 88 `
   --top-k 5 `
   --output-csv outputs/retrieval/topk_results.csv `
@@ -442,6 +442,9 @@ Available experiment names:
 - `handcrafted_only`
 - `cnn_only`
 - `fusion`
+- `calibrated_handcrafted`
+- `color_layout_only`
+- `texture_shape_only`
 - `ablation_no_regional_color`
 - `ablation_no_explicit_shape`
 - `ablation_no_shape`
@@ -612,7 +615,7 @@ As of the latest workspace review, the implementation has advanced beyond the ol
 - Phase 2 has produced `1000` normalized gallery images.
 - Phase 3 has produced all `7` descriptor matrices, including `silhouette_shape_descriptor` with dimension `15`.
 - Phase 4 SQLite build exists at `data/features/cbir_features.sqlite`.
-- Phase 5/6 retrieval experiments have produced `300` persisted runs and `1500` ranked results.
+- Phase 5/6 retrieval experiments have produced `450` persisted runs and `2250` ranked results.
 - Phase 7 currently has species-proxy evaluation only.
 - Phase 8 report artifacts have been exported to `outputs/report_artifacts`.
 - Manual relevance remains incomplete; the current template has blank `relevance_grade` values, so manual `nDCG@5` and manual `Precision@5` are still pending.
@@ -696,8 +699,9 @@ Default retrieval configurations:
   `cnn_embedding 1.00`
 
 - `fusion`
-  handcrafted-first fusion with the handcrafted stack rescaled to `0.80` plus `cnn_embedding 0.20`, for a total weight sum of `1.00`:
-  `regional_hsv_hist 0.209 + global_hsv_hist 0.075 + color_moments 0.156 + lbp_hist 0.094 + hog_descriptor 0.218 + silhouette_shape_descriptor 0.048 + cnn_embedding 0.200`
+  calibrated handcrafted-first fusion with the handcrafted stack rescaled to `0.80` plus `cnn_embedding 0.20`, for a total weight sum of `1.00`:
+  `regional_hsv_hist 0.240 + global_hsv_hist 0.064 + color_moments 0.136 + lbp_hist 0.048 + hog_descriptor 0.216 + silhouette_shape_descriptor 0.096 + cnn_embedding 0.200`
+  Fusion uses per-query percentile `5-95` score calibration before weighted summation so descriptors with different raw score scales are comparable.
 
 ### 3. Make the database the center of the system
 
@@ -738,7 +742,7 @@ Vector-storage tradeoff:
   Fields: `query_id`, `image_id`, `judgment_source`, `relevance_grade`
 
 - `experiments`
-  Fields: `experiment_id`, `name`, `feature_set_json`, `weighting_json`, `dataset_version`, `summary_metrics_json`, `notes`
+  Fields: `experiment_id`, `name`, `feature_set_json`, `weighting_json`, `score_normalization`, `dataset_version`, `summary_metrics_json`, `notes`
 
 DB-backed retrieval flow:
 
@@ -765,7 +769,7 @@ Functional module I/O:
 | Metadata manager | query/image ids and feature names | feature type ids, experiment config, preprocessing trace | uses `feature_types`, `images`, `preprocessing_metadata`, `experiments` |
 | Storage manager | descriptor matrices and query descriptors | `image_features` and `query_features` rows | SQLite is the descriptor system of record |
 | Similarity layer | query vector and gallery matrix per descriptor | per-feature similarity scores | exhaustive kNN/linear scan in Python application code |
-| Fusion/ranking layer | per-feature scores and experiment weights | ranked top-k results | weights must sum to `1.00`; `fusion` is `0.80` handcrafted + `0.20` CNN |
+| Fusion/ranking layer | per-feature scores and experiment weights | ranked top-k results | weights must sum to `1.00`; calibrated experiments normalize per-feature scores before fusion |
 | Presentation/evaluation | ranked top-k and relevance judgments | CSV/JSON report artifacts, `Precision@5`, `nDCG@5` | manual relevance is primary; species proxy is secondary |
 
 Operational retrieval strategy:

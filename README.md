@@ -1,121 +1,86 @@
-﻿# Bird Image Storage and Retrieval
+# Bird Image Storage and Retrieval
 
-This repository implements a **Content-Based Image Retrieval (CBIR)** system for bird images as a **Multimedia Database** project. The project is not framed as a classification task. The core objective is to store curated bird-image descriptors in a database, retrieve the `top-5` most visually similar images for a query, and evaluate ranking quality using **visual relevance** rather than species prediction alone.
+This repository implements a **Content-Based Image Retrieval (CBIR)** system for a Multimedia Database course project. The system stores a curated bird image collection, extracts visual descriptors, manages metadata and feature vectors in a database, and returns the **top-5 most visually similar bird images** for a query image.
 
-## Project Scope
+The project is framed as a multimedia retrieval system, not as an image classifier. Species labels may be used as metadata or secondary evaluation signals, but the main retrieval objective is visual content similarity.
 
-The current repository is organized around a **DB-first retrieval pipeline**:
+## Assignment Scope
 
-1. Curate and normalize a gallery of bird images from CUB-200-2011.
-2. Extract an explainable feature set:
-   - foreground-aware global HSV histogram
-   - foreground-aware regional HSV histogram (`2x2`)
-   - foreground-aware color moments
-   - foreground-aware LBP histogram
-   - foreground-aware HOG descriptor
-   - foreground-aware silhouette shape descriptor
-   - CNN embedding (`ResNet18`, secondary only)
-3. Store metadata, preprocessing trace, descriptors, query cache, retrieval logs, judgments, and experiment summaries in **SQLite**.
-4. Run `top-k` retrieval under multiple experiment configurations using descriptor matrices loaded from SQLite.
-   - current baseline search strategy: exhaustive `kNN` / linear scan over the gallery
-   - storage architecture: **loose coupling** (`images on filesystem`, `metadata + descriptors in SQLite`)
-   - query semantics: **approximate similarity ranking** over descriptors, not exact attribute matching and not species classification
-5. Evaluate with:
-   - **manual relevance** as the main CBIR evaluation (`nDCG@5`, `Precision@5`)
-   - **species proxy** as a secondary baseline (`Precision@5`)
+The implementation is designed around the original course requirements:
 
-## Architecture Choice
+- build a bird image dataset with at least 500 images
+- normalize all gallery images to the same dimensions and object aspect ratio
+- keep images where birds are perching and captured from a consistent horizontal viewing angle
+- design visual features that explain both similarity and difference among bird images
+- store image metadata and descriptors in a database system
+- retrieve the five most similar images for a new query image, including unseen species
+- present the system workflow, intermediate retrieval results, demo, and evaluation
 
-The repository follows a **loose-coupling multimedia DBMS architecture**:
+## Technical Approach
 
-- bird image files remain on the filesystem
-- SQLite stores metadata, descriptor definitions, feature vectors, query cache, retrieval logs, judgments, and experiment summaries
-- the retrieval engine loads descriptor matrices from SQLite, then performs an **exhaustive approximate similarity scan** in application code
+The system follows a **loose-coupling multimedia DBMS architecture**:
 
-At the project scale of `1000` images, the baseline retrieval method is an **exhaustive linear scan** over the gallery descriptors. This is intentional: it keeps the system transparent, reproducible, and easy to explain in a course project. Advanced indexing is treated as future work, not as a requirement for validating the CBIR pipeline.
+- image files are stored on the filesystem
+- metadata, descriptor definitions, feature vectors, query records, retrieval runs, relevance judgments, and experiment summaries are stored in SQLite
+- retrieval loads descriptor matrices from SQLite and performs application-layer similarity ranking
 
-Descriptor dimensions and storage tradeoffs are documented explicitly in [docs/roadmap.md](/d:/PTIT/Multimedia%20Database/docs/roadmap.md): `lbp_hist` uses uniform LBP with `P=8`, giving `10` bins; `hog_descriptor` uses `224x224` grayscale HOG with `16x16` cells, `2x2` blocks, and `9` orientations, giving `6084` dimensions. SQLite stores vectors as JSON text for auditability at this scale; production-scale retrieval would use binary vector storage and/or an ANN index.
+At the project scale, retrieval uses an exhaustive kNN-style linear scan over gallery descriptors. This keeps the method transparent, reproducible, and easy to explain in a course report. Approximate nearest-neighbor indexing is left as future work for larger datasets.
 
-The report should frame the system as:
-- a multimedia database system for content-based retrieval
-- not an image classifier
-- not an exact-match DB query system
+## Feature Set
 
-## Why This Repo Was Refactored
+The primary retrieval story is based on handcrafted descriptors:
 
-The project was deliberately refocused away from a deep-learning-first narrative. The main deliverables now emphasize:
+- `global_hsv_hist`: global color distribution
+- `regional_hsv_hist`: spatial color layout over a `2x2` grid
+- `color_moments`: compact HSV color statistics
+- `lbp_hist`: local feather texture patterns
+- `hog_descriptor`: edge, contour, and pose structure
+- `silhouette_shape_descriptor`: coarse foreground shape and geometry
 
-- what each descriptor captures
-- how each descriptor is extracted
-- how descriptors are stored and managed in a multimedia database
-- how the database is used for similarity search
-- how ranking quality is evaluated with graded relevance
-- how the report explains the system as a **multimedia retrieval** pipeline rather than a classifier
-- how the system fits a **multimedia DBMS loose-coupling architecture** instead of a pure ML training pipeline
+A `ResNet18` CNN embedding is included as a secondary semantic baseline and optional fusion signal. It is not used as a classifier in the core retrieval design.
 
-## Documentation Map
+## Retrieval Logic
 
-- [docs/guideline.md](/d:/PTIT/Multimedia%20Database/docs/guideline.md)
-  Demo-only run guide.
+The retrieval engine computes descriptor-level similarity scores, then ranks gallery images by a weighted fusion score.
 
-- [docs/roadmap.md](/d:/PTIT/Multimedia%20Database/docs/roadmap.md)
-  Consolidated setup, execution roadmap, and planning notes.
+Similarity metrics:
 
-- [docs/delivery.md](/d:/PTIT/Multimedia%20Database/docs/delivery.md)
-  Project requirements and delivery notes.
+- chi-square distance converted to similarity for histogram descriptors
+- inverse Euclidean distance for compact numeric descriptors
+- cosine similarity for HOG and CNN embeddings
 
-- [docs/current_status.md](/d:/PTIT/Multimedia%20Database/docs/current_status.md)
-  Current artifact-level status after the multi-agent verification pass, including what is complete and what still blocks final reporting.
+The main demo modes are:
 
-## Repository Structure
+- `calibrated_handcrafted`: primary handcrafted CBIR configuration
+- `fusion`: handcrafted-first fusion with secondary CNN support
+- `cnn_only`: semantic baseline for comparison
 
-- [scripts/phase1_setup](/d:/PTIT/Multimedia%20Database/scripts/phase1_setup)
-  Dataset download and setup utilities.
+## Technology Stack
 
-- [scripts/phase2_normalize](/d:/PTIT/Multimedia%20Database/scripts/phase2_normalize)
-  Review-board generation, manual filtering, ROI crop, resize, and metadata export.
+- Python
+- SQLite
+- NumPy
+- Pillow
+- scikit-image
+- PyTorch / TorchVision
+- Gradio
+- CSV, JSON, and NPY artifacts for reproducibility
 
-- [scripts/phase3_descriptor_extraction](/d:/PTIT/Multimedia%20Database/scripts/phase3_descriptor_extraction)
-  Descriptor extraction and cleanup before rebuilding downstream phases.
+## Documentation
 
-- [scripts/phase4_feature_database](/d:/PTIT/Multimedia%20Database/scripts/phase4_feature_database)
-  SQLite schema creation and feature ingestion.
+- [docs/guideline.md](docs/guideline.md): demo run guide
+- [docs/delivery.md](docs/delivery.md): assignment requirements and delivery criteria
+- [docs/current_status.md](docs/current_status.md): current implementation status and verification notes
+- [docs/roadmap.md](docs/roadmap.md): consolidated setup, command flow, architecture notes, and report planning
 
-- [scripts/phase5_retrieval](/d:/PTIT/Multimedia%20Database/scripts/phase5_retrieval)
-  Local demo UI and optional CLI retrieval entrypoints.
+## Repository Layout
 
-- [scripts/phase6_experiments](/d:/PTIT/Multimedia%20Database/scripts/phase6_experiments)
-  Query subset generation, experiment execution, and manual relevance preparation/import.
-
-- [scripts/phase7_evaluation](/d:/PTIT/Multimedia%20Database/scripts/phase7_evaluation)
-  Metric computation and evaluation reports.
-
-- [scripts/phase8_report_artifacts](/d:/PTIT/Multimedia%20Database/scripts/phase8_report_artifacts)
-  Report-ready exports.
-
-- [scripts/shared](/d:/PTIT/Multimedia%20Database/scripts/shared)
-  Shared utilities for descriptors, SQLite access, and retrieval logic.
-
-- [data/processed](/d:/PTIT/Multimedia%20Database/data/processed)
-  Curated normalized gallery images and metadata.
-
-- [data/features](/d:/PTIT/Multimedia%20Database/data/features)
-  Extracted feature artifacts and the SQLite retrieval database.
-
-## Current Working Target
-
-The repository is designed around a curated gallery of **1000 normalized images**. In the current workspace, that processed gallery has already been built under [data/processed/images](/d:/PTIT/Multimedia%20Database/data/processed/images). Rerun the Phase 2 review and normalization flow in [docs/roadmap.md](/d:/PTIT/Multimedia%20Database/docs/roadmap.md) only if you want to rebuild the gallery from scratch.
-
-Metadata note:
-- `images.width` and `images.height` refer to the original source image dimensions
-- normalized gallery size is stored separately as `target_width` and `target_height` in `preprocessing_metadata`
-
-Current workspace status:
-- `1000` normalized gallery images are present
-- all `7` descriptors are extracted, including `silhouette_shape_descriptor`
-- SQLite contains `1000` image rows and `7000` image-feature rows
-- `50` query experiments have been run across `6` configurations
-- species-proxy evaluation outputs exist
-- report artifacts exist under `outputs/report_artifacts`
-- manual relevance labels are still blank, so manual `nDCG@5` and manual `Precision@5` are not available yet
-
+- `scripts/phase1_setup`: dataset setup utilities
+- `scripts/phase2_normalize`: image review, filtering, ROI normalization, and metadata export
+- `scripts/phase3_descriptor_extraction`: descriptor extraction
+- `scripts/phase4_feature_database`: SQLite database build
+- `scripts/phase5_retrieval`: Gradio demo UI and retrieval entrypoints
+- `scripts/phase6_experiments`: experiment runs and relevance-judgment preparation
+- `scripts/phase7_evaluation`: retrieval metric computation
+- `scripts/phase8_report_artifacts`: report-ready exports
+- `scripts/shared`: shared descriptor, database, and retrieval utilities

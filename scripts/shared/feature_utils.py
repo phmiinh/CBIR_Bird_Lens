@@ -149,23 +149,58 @@ DEFAULT_EXPERIMENTS = {
             "hog_descriptor": 0.272,
             "silhouette_shape_descriptor": 0.060,
         },
+        "score_normalization": "raw",
         "notes": "Primary explainable descriptor stack with explicit silhouette shape kept as a light auxiliary cue after tuning.",
     },
     "cnn_only": {
         "weights": {"cnn_embedding": 1.00},
+        "score_normalization": "raw",
         "notes": "Semantic baseline using only the secondary deep descriptor.",
     },
     "fusion": {
         "weights": {
-            "regional_hsv_hist": 0.209,
-            "global_hsv_hist": 0.075,
-            "color_moments": 0.156,
-            "lbp_hist": 0.094,
-            "hog_descriptor": 0.218,
-            "silhouette_shape_descriptor": 0.048,
+            "regional_hsv_hist": 0.240,
+            "global_hsv_hist": 0.064,
+            "color_moments": 0.136,
+            "lbp_hist": 0.048,
+            "hog_descriptor": 0.216,
+            "silhouette_shape_descriptor": 0.096,
             "cnn_embedding": 0.20,
         },
-        "notes": "Handcrafted-first fusion after tuning the explicit silhouette shape cue down to a light auxiliary role.",
+        "score_normalization": "percentile_5_95",
+        "notes": (
+            "Handcrafted-first fusion with per-query percentile score calibration; CNN remains a secondary 20% cue."
+        ),
+    },
+    "calibrated_handcrafted": {
+        "weights": {
+            "regional_hsv_hist": 0.300,
+            "global_hsv_hist": 0.080,
+            "color_moments": 0.170,
+            "lbp_hist": 0.060,
+            "hog_descriptor": 0.270,
+            "silhouette_shape_descriptor": 0.120,
+        },
+        "score_normalization": "percentile_5_95",
+        "notes": "Handcrafted-only CBIR stack with per-query percentile calibration before weighted fusion.",
+    },
+    "color_layout_only": {
+        "weights": {
+            "regional_hsv_hist": 0.700,
+            "global_hsv_hist": 0.100,
+            "color_moments": 0.200,
+        },
+        "score_normalization": "percentile_5_95",
+        "notes": "Ablation baseline using only color distribution and coarse spatial color layout.",
+    },
+    "texture_shape_only": {
+        "weights": {
+            "hog_descriptor": 0.550,
+            "lbp_hist": 0.150,
+            "silhouette_shape_descriptor": 0.300,
+        },
+        "score_normalization": "percentile_5_95",
+        "notes": "Ablation baseline using texture, contour, and explicit silhouette shape without color descriptors.",
     },
     "ablation_no_regional_color": {
         "weights": {
@@ -175,6 +210,7 @@ DEFAULT_EXPERIMENTS = {
             "hog_descriptor": 0.367,
             "silhouette_shape_descriptor": 0.083,
         },
+        "score_normalization": "raw",
         "notes": "Ablation removing spatial color layout information.",
     },
     "ablation_no_explicit_shape": {
@@ -185,6 +221,7 @@ DEFAULT_EXPERIMENTS = {
             "lbp_hist": 0.125,
             "hog_descriptor": 0.290,
         },
+        "score_normalization": "raw",
         "notes": "Ablation removing the explicit silhouette shape descriptor while keeping color, texture, and contour.",
     },
     "ablation_no_shape": {
@@ -193,6 +230,7 @@ DEFAULT_EXPERIMENTS = {
             "global_hsv_hist": 0.170,
             "color_moments": 0.355,
         },
+        "score_normalization": "raw",
         "notes": "Ablation removing texture and shape descriptors.",
     },
 }
@@ -415,6 +453,21 @@ def normalize_external_query_image(
             "target_size": list(target_size),
         }
 
+    _, _, width, height = estimated_bbox
+    bbox_area_ratio = (width * height) / max(float(rgb.width * rgb.height), 1.0)
+    bbox_width_ratio = width / max(float(rgb.width), 1.0)
+    bbox_height_ratio = height / max(float(rgb.height), 1.0)
+    if bbox_area_ratio < 0.12 or bbox_width_ratio < 0.18 or bbox_height_ratio < 0.18:
+        normalized = center_square_crop_resize(rgb, target_size=target_size)
+        return normalized, {
+            "method": "center_square_crop_resize_low_confidence_bbox",
+            "target_size": list(target_size),
+            "estimated_bbox": [float(value) for value in estimated_bbox],
+            "bbox_area_ratio": float(bbox_area_ratio),
+            "bbox_width_ratio": float(bbox_width_ratio),
+            "bbox_height_ratio": float(bbox_height_ratio),
+        }
+
     crop_box = compute_square_crop_from_bbox(estimated_bbox, rgb.width, rgb.height, padding_ratio)
     normalized = rgb.crop(crop_box).resize(target_size, Image.Resampling.LANCZOS)
     return normalized, {
@@ -423,6 +476,9 @@ def normalize_external_query_image(
         "target_size": list(target_size),
         "crop_box": list(crop_box),
         "estimated_bbox": [float(value) for value in estimated_bbox],
+        "bbox_area_ratio": float(bbox_area_ratio),
+        "bbox_width_ratio": float(bbox_width_ratio),
+        "bbox_height_ratio": float(bbox_height_ratio),
     }
 
 
@@ -892,6 +948,7 @@ def build_experiment_rows(dataset_version: str) -> List[dict]:
                 "weighting_json": json.dumps(config["weights"], ensure_ascii=True),
                 "dataset_version": dataset_version,
                 "summary_metrics_json": json.dumps({}, ensure_ascii=True),
+                "score_normalization": config.get("score_normalization", "raw"),
                 "notes": config["notes"],
             }
         )

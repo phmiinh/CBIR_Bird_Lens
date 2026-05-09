@@ -79,13 +79,7 @@ def main() -> int:
 
     connection = connect_db(Path(args.db_path).resolve())
     try:
-        experiment_rows = connection.execute(
-            """
-            SELECT experiment_id, name, feature_set_json, weighting_json, summary_metrics_json, notes
-            FROM experiments
-            ORDER BY experiment_id
-            """
-        ).fetchall()
+        experiment_rows = connection.execute("SELECT * FROM experiments ORDER BY experiment_id").fetchall()
         summary_rows = []
         for row in experiment_rows:
             summary_rows.append(
@@ -94,6 +88,9 @@ def main() -> int:
                     "name": str(row["name"]),
                     "feature_set_json": str(row["feature_set_json"]),
                     "weighting_json": str(row["weighting_json"]),
+                    "score_normalization": str(
+                        row["score_normalization"] if "score_normalization" in row.keys() else "raw"
+                    ),
                     "summary_metrics_json": str(row["summary_metrics_json"]),
                     "notes": str(row["notes"] or ""),
                 }
@@ -101,7 +98,15 @@ def main() -> int:
         write_csv_rows(
             output_dir / "experiment_summaries.csv",
             summary_rows,
-            ["experiment_id", "name", "feature_set_json", "weighting_json", "summary_metrics_json", "notes"],
+            [
+                "experiment_id",
+                "name",
+                "feature_set_json",
+                "weighting_json",
+                "score_normalization",
+                "summary_metrics_json",
+                "notes",
+            ],
         )
 
         example_row = connection.execute(

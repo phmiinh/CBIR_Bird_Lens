@@ -49,44 +49,8 @@ In the UI:
 
 Recommended demo experiments:
 
-- `handcrafted_only` - primary explainable CBIR stack
-- `fusion` - handcrafted stack plus secondary CNN embedding
-- `cnn_only` - semantic CNN baseline
-
-## CLI Demo Smoke Test
-
-Use an existing gallery image as the query:
-
-```powershell
-python scripts/phase5_retrieval/retrieve_topk.py `
-  --db-path data/features/cbir_features.sqlite `
-  --processed-root data/processed `
-  --experiment-name fusion `
-  --query-image-id 88 `
-  --top-k 5 `
-  --device cpu `
-  --output-csv outputs/retrieval/topk_demo.csv `
-  --output-json outputs/retrieval/topk_demo.json
-```
-
-Use an external image as the query:
-
-```powershell
-python scripts/phase5_retrieval/retrieve_topk.py `
-  --db-path data/features/cbir_features.sqlite `
-  --processed-root data/processed `
-  --experiment-name fusion `
-  --query-image-path "path\to\query_image.jpg" `
-  --top-k 5 `
-  --device cpu `
-  --output-csv outputs/retrieval/topk_external_demo.csv `
-  --output-json outputs/retrieval/topk_external_demo.json
-```
-
-The CLI writes:
-
-- ranked result CSV
-- full JSON retrieval payload
-- persisted query/run rows when `retrieve_topk.py` is used
+- `calibrated_handcrafted` - main handcrafted CBIR mode for the report demo
+- `fusion` - handcrafted-first mode with secondary CNN support
+- `cnn_only` - semantic CNN baseline for comparison
 
 The Gradio UI uses live retrieval with `persist=False`, so it does not write retrieval runs during UI interaction.

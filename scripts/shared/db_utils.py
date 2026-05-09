@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     name TEXT NOT NULL UNIQUE,
     feature_set_json TEXT NOT NULL,
     weighting_json TEXT NOT NULL,
+    score_normalization TEXT NOT NULL DEFAULT 'raw',
     dataset_version TEXT NOT NULL,
     summary_metrics_json TEXT NOT NULL,
     notes TEXT
@@ -161,8 +162,21 @@ def connect_db(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {str(row["name"]) for row in rows}
+
+
+def migrate_schema(connection: sqlite3.Connection) -> None:
+    experiment_columns = _table_columns(connection, "experiments")
+    if experiment_columns and "score_normalization" not in experiment_columns:
+        connection.execute("ALTER TABLE experiments ADD COLUMN score_normalization TEXT NOT NULL DEFAULT 'raw'")
+    connection.commit()
+
+
 def create_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SCHEMA_SQL)
+    migrate_schema(connection)
     connection.commit()
 
 
@@ -280,6 +294,7 @@ def upsert_experiments(connection: sqlite3.Connection, rows: Iterable[dict]) -> 
             row["name"],
             row["feature_set_json"],
             row["weighting_json"],
+            row.get("score_normalization", "raw"),
             row["dataset_version"],
             row["summary_metrics_json"],
             row.get("notes", ""),
@@ -289,8 +304,9 @@ def upsert_experiments(connection: sqlite3.Connection, rows: Iterable[dict]) -> 
     connection.executemany(
         """
         INSERT OR REPLACE INTO experiments (
-            experiment_id, name, feature_set_json, weighting_json, dataset_version, summary_metrics_json, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            experiment_id, name, feature_set_json, weighting_json, score_normalization,
+            dataset_version, summary_metrics_json, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )
@@ -322,6 +338,7 @@ def ensure_default_experiments(connection: sqlite3.Connection, dataset_version: 
                 "name": name,
                 "feature_set_json": json_dumps(sorted(config["weights"].keys())),
                 "weighting_json": json_dumps(config["weights"]),
+                "score_normalization": config.get("score_normalization", "raw"),
                 "dataset_version": dataset_version,
                 "summary_metrics_json": row["summary_metrics_json"] if row else json_dumps({}),
                 "notes": config.get("notes", ""),
