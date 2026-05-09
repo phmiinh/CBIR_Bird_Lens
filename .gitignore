@@ -23,6 +23,28 @@ Thumbs.db
 kaggle.json
 .kaggle/
 .codex/
+.env
+.env.*
+!.env.example
+
+# Local database sidecar files
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.db-wal
+*.db-shm
+*.db-journal
+# Test/tool caches and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs/temp
+*.log
+tmp/
+temp/
 
 # Project data: keep lightweight metadata, ignore heavy/generated assets
 data/raw/
@@ -31,6 +53,8 @@ data/features/*
 !data/features/config.json
 !data/features/descriptor_table.csv
 !data/features/images_manifest.csv
+!data/evaluation/
+!data/evaluation/manual_relevance.csv
 
 # Generated outputs
 outputs/
