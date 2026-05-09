@@ -17,14 +17,16 @@ from feature_utils import save_json, write_csv_rows
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate DB-backed retrieval runs with manual relevance and/or species proxy."
+        description="Evaluate DB-backed retrieval runs with one or more relevance judgment sources."
     )
     parser.add_argument("--db-path", default="data/features/cbir_features.sqlite")
     parser.add_argument(
         "--judgment-source",
-        choices=("manual", "species_proxy", "both"),
         default="both",
-        help="Which relevance source to evaluate.",
+        help=(
+            "Which relevance source to evaluate. Use manual, species_proxy, auto_visual_proxy, "
+            "both for manual+species_proxy, all for every source in the DB, or a comma-separated list."
+        ),
     )
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--output-dir", default="outputs/eval")
@@ -84,6 +86,42 @@ def load_judgments(connection, judgment_source: str):
     return by_query
 
 
+def load_available_sources(connection) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT DISTINCT judgment_source
+        FROM relevance_judgments
+        ORDER BY judgment_source
+        """
+    ).fetchall()
+    sources = [str(row["judgment_source"]) for row in rows]
+    preferred = ["manual", "auto_visual_proxy", "species_proxy"]
+    return [source for source in preferred if source in sources] + [
+        source for source in sources if source not in preferred
+    ]
+
+
+def resolve_requested_sources(connection, source_text: str) -> list[str]:
+    source_text = str(source_text).strip()
+    if source_text == "both":
+        return ["manual", "species_proxy"]
+    if source_text == "all":
+        return load_available_sources(connection)
+    return [source.strip() for source in source_text.split(",") if source.strip()]
+
+
+def is_graded_source(judgment_source: str) -> bool:
+    return judgment_source != "species_proxy"
+
+
+def summary_metric_keys(judgment_source: str) -> tuple[str, str | None]:
+    if judgment_source == "manual":
+        return "manual_precision_at_k", "manual_ndcg_at_k"
+    if judgment_source == "species_proxy":
+        return "species_proxy_precision_at_k", None
+    return f"{judgment_source}_precision_at_k", f"{judgment_source}_ndcg_at_k"
+
+
 def evaluate_source(connection, judgment_source: str, k: int, output_dir: Path) -> dict:
     latest_runs = load_latest_runs(connection)
     judgments_by_query = load_judgments(connection, judgment_source)
@@ -92,10 +130,11 @@ def evaluate_source(connection, judgment_source: str, k: int, output_dir: Path) 
 
     per_query_rows = []
     by_experiment = defaultdict(list)
+    graded_source = is_graded_source(judgment_source)
 
     for run in latest_runs:
         query_id = int(run["query_id"])
-        if judgment_source == "manual" and query_id not in judgments_by_query:
+        if query_id not in judgments_by_query:
             continue
 
         results = connection.execute(
@@ -118,7 +157,7 @@ def evaluate_source(connection, judgment_source: str, k: int, output_dir: Path) 
             "judged_in_topk": sum(1 for row in results[:k] if int(row["image_id"]) in judgments_by_query.get(query_id, {})),
         }
 
-        if judgment_source == "manual":
+        if graded_source:
             ideal_grades = sorted(judgments_by_query[query_id].values(), reverse=True)
             ideal_dcg = dcg_at_k(ideal_grades, k)
             ndcg = (dcg_at_k(grades, k) / ideal_dcg) if ideal_dcg > 0 else 0.0
@@ -130,26 +169,27 @@ def evaluate_source(connection, judgment_source: str, k: int, output_dir: Path) 
         per_query_rows.append(metric_row)
 
     fieldnames = ["experiment_name", "query_id", "run_id", "precision_at_k", "judged_in_topk"]
-    if judgment_source == "manual":
+    if graded_source:
         fieldnames.append("ndcg_at_k")
     write_csv_rows(output_dir / f"{judgment_source}_per_query.csv", per_query_rows, fieldnames)
 
     summary = {}
+    precision_key, ndcg_key = summary_metric_keys(judgment_source)
     for experiment_name, values in by_experiment.items():
-        if judgment_source == "manual":
+        if graded_source:
             precisions = [item[0] for item in values]
             ndcgs = [item[1] for item in values]
             summary[experiment_name] = {
                 "evaluated_queries": len(values),
-                "manual_precision_at_k": float(sum(precisions) / len(precisions)) if values else 0.0,
-                "manual_ndcg_at_k": float(sum(ndcgs) / len(ndcgs)) if values else 0.0,
+                precision_key: float(sum(precisions) / len(precisions)) if values else 0.0,
+                str(ndcg_key): float(sum(ndcgs) / len(ndcgs)) if values else 0.0,
                 "k": int(k),
             }
         else:
             precisions = [item[0] for item in values]
             summary[experiment_name] = {
                 "evaluated_queries": len(values),
-                "species_proxy_precision_at_k": float(sum(precisions) / len(precisions)) if values else 0.0,
+                precision_key: float(sum(precisions) / len(precisions)) if values else 0.0,
                 "k": int(k),
             }
 
@@ -161,8 +201,6 @@ def main() -> int:
     args = parse_args()
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    requested_sources = ["manual", "species_proxy"] if args.judgment_source == "both" else [args.judgment_source]
 
     connection = connect_db(Path(args.db_path).resolve())
     try:
@@ -176,6 +214,7 @@ def main() -> int:
         }
 
         source_summaries = {}
+        requested_sources = resolve_requested_sources(connection, args.judgment_source)
         for source in requested_sources:
             summary = evaluate_source(connection, source, args.k, output_dir)
             source_summaries[source] = summary

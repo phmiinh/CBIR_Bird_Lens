@@ -1,4 +1,4 @@
-# Bird Image Storage and Retrieval
+﻿# Bird Image Storage and Retrieval
 
 This repository implements a **Content-Based Image Retrieval (CBIR)** system for bird images as a **Multimedia Database** project. The project is not framed as a classification task. The core objective is to store curated bird-image descriptors in a database, retrieve the `top-5` most visually similar images for a query, and evaluate ranking quality using **visual relevance** rather than species prediction alone.
 
@@ -34,7 +34,7 @@ The repository follows a **loose-coupling multimedia DBMS architecture**:
 
 At the project scale of `1000` images, the baseline retrieval method is an **exhaustive linear scan** over the gallery descriptors. This is intentional: it keeps the system transparent, reproducible, and easy to explain in a course project. Advanced indexing is treated as future work, not as a requirement for validating the CBIR pipeline.
 
-Descriptor dimensions and storage tradeoffs are documented explicitly in [plan.md](/d:/PTIT/Multimedia%20Database/plan.md): `lbp_hist` uses uniform LBP with `P=8`, giving `10` bins; `hog_descriptor` uses `224x224` grayscale HOG with `16x16` cells, `2x2` blocks, and `9` orientations, giving `6084` dimensions. SQLite stores vectors as JSON text for auditability at this scale; production-scale retrieval would use binary vector storage and/or an ANN index.
+Descriptor dimensions and storage tradeoffs are documented explicitly in [docs/roadmap.md](/d:/PTIT/Multimedia%20Database/docs/roadmap.md): `lbp_hist` uses uniform LBP with `P=8`, giving `10` bins; `hog_descriptor` uses `224x224` grayscale HOG with `16x16` cells, `2x2` blocks, and `9` orientations, giving `6084` dimensions. SQLite stores vectors as JSON text for auditability at this scale; production-scale retrieval would use binary vector storage and/or an ANN index.
 
 The report should frame the system as:
 - a multimedia database system for content-based retrieval
@@ -55,16 +55,16 @@ The project was deliberately refocused away from a deep-learning-first narrative
 
 ## Documentation Map
 
-- [setup.md](/d:/PTIT/Multimedia%20Database/setup.md)
-  Environment setup, dependencies, Kaggle access, and CUB download.
+- [docs/guideline.md](/d:/PTIT/Multimedia%20Database/docs/guideline.md)
+  Demo-only run guide.
 
-- [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md)
-  Execution guide for the working pipeline: normalization, descriptor extraction, database build, retrieval, experiments, evaluation, and report artifacts.
+- [docs/roadmap.md](/d:/PTIT/Multimedia%20Database/docs/roadmap.md)
+  Consolidated setup, execution roadmap, and planning notes.
 
-- [plan.md](/d:/PTIT/Multimedia%20Database/plan.md)
-  Master refactor roadmap and architecture decisions for the DB-first version of the project.
+- [docs/delivery.md](/d:/PTIT/Multimedia%20Database/docs/delivery.md)
+  Project requirements and delivery notes.
 
-- [current_status_review.md](/d:/PTIT/Multimedia%20Database/current_status_review.md)
+- [docs/current_status.md](/d:/PTIT/Multimedia%20Database/docs/current_status.md)
   Current artifact-level status after the multi-agent verification pass, including what is complete and what still blocks final reporting.
 
 ## Repository Structure
@@ -104,7 +104,7 @@ The project was deliberately refocused away from a deep-learning-first narrative
 
 ## Current Working Target
 
-The repository is designed around a curated gallery of **1000 normalized images**. In the current workspace, that processed gallery has already been built under [data/processed/images](/d:/PTIT/Multimedia%20Database/data/processed/images). Rerun the Phase 2 review and normalization flow in [roadmap.md](/d:/PTIT/Multimedia%20Database/roadmap.md) only if you want to rebuild the gallery from scratch.
+The repository is designed around a curated gallery of **1000 normalized images**. In the current workspace, that processed gallery has already been built under [data/processed/images](/d:/PTIT/Multimedia%20Database/data/processed/images). Rerun the Phase 2 review and normalization flow in [docs/roadmap.md](/d:/PTIT/Multimedia%20Database/docs/roadmap.md) only if you want to rebuild the gallery from scratch.
 
 Metadata note:
 - `images.width` and `images.height` refer to the original source image dimensions
@@ -118,3 +118,4 @@ Current workspace status:
 - species-proxy evaluation outputs exist
 - report artifacts exist under `outputs/report_artifacts`
 - manual relevance labels are still blank, so manual `nDCG@5` and manual `Precision@5` are not available yet
+

@@ -14,13 +14,18 @@ from feature_utils import load_csv_rows
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Import graded manual relevance judgments into the SQLite database."
+        description="Import graded relevance judgments into the SQLite database."
     )
     parser.add_argument("--db-path", default="data/features/cbir_features.sqlite")
     parser.add_argument(
         "--judgments-csv",
         default="outputs/manual_relevance/manual_relevance_template.csv",
         help="Reviewed CSV with query_id, candidate_image_id, and relevance_grade filled in.",
+    )
+    parser.add_argument(
+        "--judgment-source",
+        default="manual",
+        help="Judgment source label to store, for example manual or auto_visual_proxy.",
     )
     return parser.parse_args()
 
@@ -37,7 +42,7 @@ def main() -> int:
             {
                 "query_id": int(row["query_id"]),
                 "image_id": int(row["candidate_image_id"]),
-                "judgment_source": "manual",
+                "judgment_source": str(args.judgment_source),
                 "relevance_grade": int(float(grade_text)),
             }
         )
@@ -51,7 +56,7 @@ def main() -> int:
     finally:
         connection.close()
 
-    print(f"Imported manual judgments: {len(import_rows)}")
+    print(f"Imported {args.judgment_source} judgments: {len(import_rows)}")
     return 0
 
 

@@ -1,4 +1,4 @@
-# Rà Soát Trạng Thái Hiện Tại
+﻿# Rà Soát Trạng Thái Hiện Tại
 
 Cập nhật: `2026-05-08` theo múi giờ Asia/Saigon
 
@@ -42,11 +42,11 @@ Kết luận chung của hai agent:
 
 | Vấn đề trong đánh giá | Trạng thái sau rà soát | Việc đã làm hoặc cần làm |
 | --- | --- | --- |
-| `lbp_hist` chỉ có `10` chiều | Code đúng: uniform LBP dùng `P=8`, `R=1`, nên histogram có `P + 2 = 10` bins. | Đã bổ sung công thức vào `plan.md`, `roadmap.md`, và report descriptor export. |
+| `lbp_hist` chỉ có `10` chiều | Code đúng: uniform LBP dùng `P=8`, `R=1`, nên histogram có `P + 2 = 10` bins. | Đã bổ sung công thức vào `docs/roadmap.md`, và report descriptor export. |
 | `hog_descriptor` có `6084` chiều | Code đúng: `224x224`, `pixels_per_cell=(16,16)`, `cells_per_block=(2,2)`, `orientations=9` -> `13 x 13 x 4 x 9 = 6084`. | Đã bổ sung công thức vào tài liệu và report descriptor export. |
 | Fusion có thể bị tổng weight `1.20` | Hiện tại không còn bug này: code và DB đều có tổng weight `1.00`; `fusion = 0.80` handcrafted + `0.20` CNN. | Đã thêm runtime guard để fail nếu experiment weight không sum về `1.00`. |
-| `vector_json` cần nêu tradeoff | Thiết kế phù hợp quy mô môn học vì minh bạch và reproducible, nhưng tốn storage/parse time. DB hiện khoảng `89.96 MB`, HOG JSON chiếm khoảng `49.6 MB`. | Đã thêm đoạn tradeoff trong `plan.md`; nếu scale lớn thì chuyển vector sang BLOB/sidecar/vector index. |
-| DB có thật sự retrieval không | Có, nhưng retrieval logic nằm ở application layer: SQLite là system-of-record cho descriptors, còn exhaustive kNN/fusion chạy trong Python. | Đã làm rõ trong `plan.md`, `roadmap.md`, và `system_block_diagram.md` export. |
+| `vector_json` cần nêu tradeoff | Thiết kế phù hợp quy mô môn học vì minh bạch và reproducible, nhưng tốn storage/parse time. DB hiện khoảng `89.96 MB`, HOG JSON chiếm khoảng `49.6 MB`. | Đã thêm đoạn tradeoff trong `docs/roadmap.md`; nếu scale lớn thì chuyển vector sang BLOB/sidecar/vector index. |
+| DB có thật sự retrieval không | Có, nhưng retrieval logic nằm ở application layer: SQLite là system-of-record cho descriptors, còn exhaustive kNN/fusion chạy trong Python. | Đã làm rõ trong `docs/roadmap.md`, và `system_block_diagram.md` export. |
 | Manual relevance | Vẫn là blocker chính. SQLite hiện chỉ có `species_proxy`; template manual còn trống. | Cần điền label, import, rerun Phase 7/8 trước khi viết kết quả cuối. |
 
 Runtime hardening đã bổ sung:
@@ -59,7 +59,7 @@ Runtime hardening đã bổ sung:
 
 ### 1. `silhouette_shape_descriptor` không còn thiếu
 
-Nhận xét cũ đúng với `delivery.md` cũ, nhưng không đúng với workspace hiện tại.
+Nhận xét cũ đúng với `docs/delivery.md` cũ, nhưng không đúng với workspace hiện tại.
 
 Bằng chứng:
 
@@ -181,3 +181,5 @@ Báo cáo vẫn cần chuẩn bị thêm:
 - ERD/schema diagram
 - hình intermediate results
 - top-5 retrieval example với per-feature score breakdown
+
+

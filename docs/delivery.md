@@ -1,4 +1,4 @@
-# Báo Cáo Bàn Giao Và Cập Nhật Trạng Thái
+﻿# Báo Cáo Bàn Giao Và Cập Nhật Trạng Thái
 
 Cập nhật: `2026-05-08` theo múi giờ Asia/Saigon
 
@@ -174,3 +174,5 @@ Nội dung báo cáo vẫn cần chuẩn bị thêm:
 - ERD/schema diagram
 - hình intermediate result
 - top-5 retrieval example với per-feature score
+
+
