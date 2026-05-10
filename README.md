@@ -1,4 +1,31 @@
-# Bird Image Storage and Retrieval
+<h1 align="center">Bird Image Storage and Retrieval</h1>
+
+<p align="center">
+  <strong>Content-based multimedia database system for bird image storage, descriptor management, and top-5 visual similarity retrieval.</strong>
+</p>
+
+<p align="center">
+  <img alt="Project" src="https://img.shields.io/badge/Project-Multimedia%20Database-2f6fed?style=flat-square">
+  <img alt="Language" src="https://img.shields.io/badge/Language-Python%203.9%2B-3776ab?style=flat-square">
+  <img alt="Database" src="https://img.shields.io/badge/Database-SQLite-4b5563?style=flat-square">
+  <img alt="Retrieval" src="https://img.shields.io/badge/Retrieval-Top--5%20CBIR-0f766e?style=flat-square">
+  <img alt="Interface" src="https://img.shields.io/badge/Interface-Gradio-f97316?style=flat-square">
+</p>
+
+<p align="center">
+  <img alt="Dataset" src="https://img.shields.io/badge/Dataset-CUB--200--2011-7c3aed?style=flat-square">
+  <img alt="Features" src="https://img.shields.io/badge/Features-Handcrafted%20%2B%20CNN-0369a1?style=flat-square">
+  <img alt="Evaluation" src="https://img.shields.io/badge/Evaluation-nDCG%405%20%7C%20Precision%405-b45309?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="#assignment-scope">Assignment Scope</a> &middot;
+  <a href="#technical-approach">Technical Approach</a> &middot;
+  <a href="#feature-set">Feature Set</a> &middot;
+  <a href="#retrieval-logic">Retrieval Logic</a> &middot;
+  <a href="#technology-stack">Technology Stack</a> &middot;
+  <a href="#documentation">Documentation</a>
+</p>
 
 This repository implements a **Content-Based Image Retrieval (CBIR)** system for a Multimedia Database course project. The system stores a curated bird image collection, extracts visual descriptors, manages metadata and feature vectors in a database, and returns the **top-5 most visually similar bird images** for a query image.
 
@@ -57,14 +84,16 @@ The main demo modes are:
 
 ## Technology Stack
 
-- Python
-- SQLite
-- NumPy
-- Pillow
-- scikit-image
-- PyTorch / TorchVision
-- Gradio
-- CSV, JSON, and NPY artifacts for reproducibility
+| Layer | Technologies |
+| --- | --- |
+| Core language | Python 3.9+ |
+| Database | SQLite |
+| Image processing | Pillow, scikit-image |
+| Numerical computing | NumPy |
+| Deep feature baseline | PyTorch, TorchVision, ResNet18 |
+| Demo interface | Gradio |
+| Artifact formats | CSV, JSON, NPY, SQLite |
+| Retrieval strategy | Exhaustive kNN-style similarity scan, weighted score fusion |
 
 ## Documentation
 
